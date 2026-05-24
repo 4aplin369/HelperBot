@@ -13,7 +13,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from .config import Settings, load_settings
-from .content import PLANT_NOTES, garden_tip, horoscope, horoscope_title, morning_digest
+from .content import garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
 from .formatting import format_entries, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
@@ -27,9 +27,8 @@ from .keyboards import (
     BTN_FIND,
     BTN_HOROSCOPE,
     BTN_PHOTO,
-    BTN_PLANTS,
     BTN_RECORDS,
-    BTN_SETTINGS,
+    BTN_SOWING_DAYS,
     BTN_SKIP_CAPTION,
     BTN_TEST_DIGEST,
     BTN_TODAY_TIP,
@@ -39,7 +38,6 @@ from .keyboards import (
     diary_menu,
     main_menu,
     photo_caption_menu,
-    plants_menu,
     records_months_menu,
 )
 from .scheduler import backup_loop, digest_loop
@@ -152,19 +150,14 @@ async def today_tip(message: Message, settings: Settings, dacha6_service: Dacha6
     )
 
 
-@router.message(F.text == BTN_PLANTS)
-async def plants(message: Message, settings: Settings) -> None:
+@router.message(F.text == BTN_SOWING_DAYS)
+async def sowing_days(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
-    await message.answer("Выберите растение.", reply_markup=plants_menu())
-
-
-@router.message(F.text.in_(set(PLANT_NOTES)))
-async def plant_note(message: Message, settings: Settings) -> None:
-    if await _deny_if_needed(message, settings):
-        return
-    assert message.text is not None
-    await message.answer(PLANT_NOTES[message.text], reply_markup=plants_menu())
+    await message.answer(
+        await dacha6_service.sowing_days_text(),
+        reply_markup=dacha_menu(),
+    )
 
 
 @router.message(F.text == BTN_HOROSCOPE)
@@ -180,22 +173,6 @@ async def horoscope_handler(
     await message.answer(
         f"✨ {horoscope_title(today, settings.horoscope_sign)}\n{result.text}",
         reply_markup=main_menu(_is_admin(message, settings)),
-    )
-
-
-@router.message(F.text == BTN_SETTINGS)
-async def settings_handler(message: Message, settings: Settings) -> None:
-    if await _deny_if_needed(message, settings):
-        return
-    if not _is_admin(message, settings):
-        await message.answer("Настройки доступны только дочери.")
-        return
-    await message.answer(
-        "Настройки первой версии меняются в файле .env:\n"
-        f"- время дайджеста: {settings.digest_hour:02d}:{settings.digest_minute:02d}\n"
-        f"- часовой пояс: {settings.timezone.key}\n"
-        "- доступ: ALLOWED_USER_IDS",
-        reply_markup=main_menu(True),
     )
 
 
@@ -219,7 +196,6 @@ async def test_digest_handler(
             horoscope_result.text,
             settings.horoscope_sign,
             settings.recipient_name,
-            lunar_service.daily_text(_now(settings).date()),
             await dacha6_service.garden_text(_now(settings).date()),
         ),
         reply_markup=main_menu(True),

@@ -13,6 +13,7 @@ from .content import MONTHS_GENITIVE_RU
 from .lunar_service import LunarService
 
 logger = logging.getLogger(__name__)
+ZODIAC_SYMBOLS_RE = re.compile(r"\s*[♈♉♊♋♌♍♎♏♐♑♒♓]")
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ class Dacha6Service:
                 include_folk_signs=include_folk_signs,
             )
 
-        return (
+        return _remove_zodiac_symbols(
             f"По календарю dacha6 для региона {self.settings.lunar_city}, {self.settings.lunar_region}: "
             f"{info.category.lower()}.\n"
             f"{self._advice_for_category(info.category)}\n"
@@ -96,7 +97,21 @@ class Dacha6Service:
             parts.append(summary)
         if days:
             parts.append(days)
-        return "\n\n".join(parts)
+        return _remove_zodiac_symbols("\n\n".join(parts))
+
+    async def sowing_days_text(self) -> str:
+        page = await self._fetch_page()
+        if page is None:
+            return "Не получилось загрузить таблицу дней для посева. Попробуйте позже."
+
+        rows = _parse_sowing_days(page)
+        if not rows:
+            return "Не получилось разобрать таблицу дней для посева. Сайт мог изменить разметку."
+
+        lines = [f"Дни для посева dacha6: {self.settings.lunar_city}, {self.settings.lunar_region}"]
+        for culture, days in rows:
+            lines.append(f"{culture}: {days}")
+        return "\n".join(lines)
 
     async def get_day(self, today: date) -> GardenDayInfo | None:
         page = await self._fetch_page()
@@ -273,6 +288,28 @@ def _parse_daily_details(page: str) -> DailyGardenDetails | None:
     )
 
 
+def _parse_sowing_days(page: str) -> list[tuple[str, str]]:
+    table_match = re.search(
+        r"<table class=\"tb2_1\">(.*?)</table>",
+        page,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not table_match:
+        return []
+
+    rows: list[tuple[str, str]] = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table_match.group(1), flags=re.DOTALL | re.IGNORECASE):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.DOTALL | re.IGNORECASE)
+        if len(cells) != 2:
+            continue
+        culture = _clean_html(cells[0])
+        days = _clean_html(cells[1])
+        if not culture or culture == "Культура":
+            continue
+        rows.append((culture, days))
+    return rows
+
+
 def _parse_folk_signs(page: str) -> list[str]:
     match = re.search(
         r"<h2>Народные приметы.*?</h2>\s*<ol>(.*?)</ol>",
@@ -288,7 +325,12 @@ def _clean_html(value: str) -> str:
     value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
     value = html.unescape(value)
+    value = ZODIAC_SYMBOLS_RE.sub("", value)
     return re.sub(r"\s+", " ", value).strip()
+
+
+def _remove_zodiac_symbols(value: str) -> str:
+    return ZODIAC_SYMBOLS_RE.sub("", value)
 
 
 def _format_daily_details(
@@ -302,18 +344,15 @@ def _format_daily_details(
         info.moon_info,
     ]
     if details.good:
-        parts.append("Хорошо:\n" + _bullet_list(details.good, limit=6))
+        parts.append("Хорошо:\n" + _bullet_list(details.good))
     if details.medium:
-        parts.append("Средне:\n" + _bullet_list(details.medium, limit=4))
+        parts.append("Средне:\n" + _bullet_list(details.medium))
     if details.bad:
-        parts.append("Лучше не делать:\n" + _bullet_list(details.bad, limit=6))
+        parts.append("Лучше не делать:\n" + _bullet_list(details.bad))
     if include_folk_signs and details.folk_signs:
-        parts.append("Народные приметы:\n" + _bullet_list(details.folk_signs, limit=3))
-    return "\n\n".join(parts)
+        parts.append("Народные приметы:\n" + _bullet_list(details.folk_signs))
+    return _remove_zodiac_symbols("\n\n".join(parts))
 
 
-def _bullet_list(items: tuple[str, ...], limit: int) -> str:
-    shown = list(items[:limit])
-    if len(items) > limit:
-        shown.append(f"ещё {len(items) - limit} пункт(ов) в полном календаре")
-    return "\n".join(f"- {item}" for item in shown)
+def _bullet_list(items: tuple[str, ...]) -> str:
+    return "\n".join(f"- {item}" for item in items)

@@ -70,7 +70,6 @@ async def send_daily_digest(
         horoscope.text,
         settings.horoscope_sign,
         settings.recipient_name,
-        lunar_service.daily_text(today),
         await dacha6_service.garden_text(today),
     )
 
