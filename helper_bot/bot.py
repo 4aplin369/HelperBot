@@ -436,7 +436,7 @@ async def run_bot() -> None:
     )
     horoscope_service = HoroscopeService(storage, settings)
     lunar_service = LunarService(settings)
-    dacha6_service = Dacha6Service(settings, lunar_service)
+    dacha6_service = Dacha6Service(settings, lunar_service, storage)
 
     bot = Bot(settings.bot_token)
     dp = Dispatcher()

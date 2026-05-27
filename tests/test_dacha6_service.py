@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from helper_bot.dacha6_service import _month_days_text, _parse_day
+from helper_bot.dacha6_service import _month_days_text, _parse_day, _with_today_title
 
 
 class Dacha6ParserTest(unittest.TestCase):
@@ -48,6 +48,12 @@ class Dacha6ParserTest(unittest.TestCase):
 
         self.assertIn("01: благоприятные дни", text)
         self.assertNotIn("31:", text)
+
+    def test_today_title_has_full_date(self) -> None:
+        text = _with_today_title(date(2026, 5, 27), "Хорошо:\n- Полив")
+
+        self.assertTrue(text.startswith("Что сделать на даче: 27 мая 2026"))
+        self.assertIn("Хорошо:\n- Полив", text)
 
 
 if __name__ == "__main__":

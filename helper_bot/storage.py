@@ -64,6 +64,13 @@ class Storage:
                     fetched_at TEXT NOT NULL,
                     PRIMARY KEY (horoscope_date, sign)
                 );
+
+                CREATE TABLE IF NOT EXISTS content_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -192,6 +199,32 @@ class Storage:
                 DO UPDATE SET text = excluded.text, source = excluded.source, fetched_at = excluded.fetched_at
                 """,
                 (horoscope_date.isoformat(), sign, text.strip(), source, fetched_at.isoformat()),
+            )
+
+    def get_cached_text(self, cache_key: str) -> tuple[str, str] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT text, source
+                FROM content_cache
+                WHERE cache_key = ?
+                """,
+                (cache_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["text"]), str(row["source"])
+
+    def save_cached_text(self, cache_key: str, text: str, source: str, fetched_at: datetime) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO content_cache(cache_key, text, source, fetched_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(cache_key)
+                DO UPDATE SET text = excluded.text, source = excluded.source, fetched_at = excluded.fetched_at
+                """,
+                (cache_key, text, source, fetched_at.isoformat()),
             )
 
     @contextmanager

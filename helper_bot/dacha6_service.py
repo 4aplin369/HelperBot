@@ -5,13 +5,14 @@ import logging
 import re
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 import aiohttp
 
 from .config import Settings
 from .content import MONTHS_GENITIVE_RU, MONTHS_RU
 from .lunar_service import LunarService
+from .storage import Storage
 
 logger = logging.getLogger(__name__)
 ZODIAC_SYMBOLS_RE = re.compile(r"\s*[♈♉♊♋♌♍♎♏♐♑♒♓]")
@@ -35,30 +36,48 @@ class DailyGardenDetails:
 
 
 class Dacha6Service:
-    def __init__(self, settings: Settings, lunar_service: LunarService) -> None:
+    def __init__(self, settings: Settings, lunar_service: LunarService, storage: Storage | None = None) -> None:
         self.settings = settings
         self.lunar_service = lunar_service
+        self.storage = storage
 
     async def garden_text(self, today: date, include_folk_signs: bool = True) -> str:
+        cache_key = f"dacha6:garden:{today.isoformat()}:folk={int(include_folk_signs)}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
         info = await self.get_day(today)
         if info is None:
-            return self.lunar_service.garden_text(today)
+            text = _with_today_title(today, self.lunar_service.garden_text(today))
+            self._save_cached_text(cache_key, text, "fallback")
+            return text
 
         details = await self.get_daily_details(today)
         if details is not None:
-            return _format_daily_details(
-                settings=self.settings,
-                info=info,
-                details=details,
-                include_folk_signs=include_folk_signs,
+            text = _with_today_title(
+                today,
+                _format_daily_details(
+                    settings=self.settings,
+                    info=info,
+                    details=details,
+                    include_folk_signs=include_folk_signs,
+                ),
             )
+            self._save_cached_text(cache_key, text, "dacha6")
+            return text
 
-        return _remove_zodiac_symbols(
-            f"По календарю dacha6 для региона {self.settings.lunar_city}, {self.settings.lunar_region}: "
-            f"{info.category.lower()}.\n"
-            f"{self._advice_for_category(info.category)}\n"
-            f"{info.moon_info}"
+        text = _with_today_title(
+            today,
+            _remove_zodiac_symbols(
+                f"По календарю dacha6 для региона {self.settings.lunar_city}, {self.settings.lunar_region}: "
+                f"{info.category.lower()}.\n"
+                f"{self._advice_for_category(info.category)}\n"
+                f"{info.moon_info}"
+            ),
         )
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
 
     async def get_daily_details(self, today: date) -> DailyGardenDetails | None:
         try:
@@ -84,6 +103,11 @@ class Dacha6Service:
         return _parse_daily_details(page)
 
     async def month_text(self, today: date) -> str:
+        cache_key = f"dacha6:month:{today.year:04d}-{today.month:02d}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
         page = await self._fetch_month_page(today.year, today.month)
         if page is None:
             return "Не получилось загрузить календарь dacha6. Попробуйте позже."
@@ -101,11 +125,18 @@ class Dacha6Service:
             parts.append(summary)
         if days:
             parts.append(days)
-        return _remove_zodiac_symbols("\n\n".join(parts))
+        text = _remove_zodiac_symbols("\n\n".join(parts))
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
 
     async def sowing_days_text(self, target_month: date | None = None) -> str:
         if target_month is None:
             target_month = date.today()
+        cache_key = f"dacha6:sowing:{target_month.year:04d}-{target_month.month:02d}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
         page = await self._fetch_month_page(target_month.year, target_month.month)
         if page is None:
             return "Не получилось загрузить таблицу дней для посева. Попробуйте позже."
@@ -120,7 +151,9 @@ class Dacha6Service:
         ]
         for culture, days in rows:
             lines.append(f"{culture}: {days}")
-        return "\n".join(lines)
+        text = "\n".join(lines)
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
 
     async def get_day(self, today: date) -> GardenDayInfo | None:
         page = await self._fetch_month_page(today.year, today.month)
@@ -151,6 +184,21 @@ class Dacha6Service:
         except Exception:
             logger.exception("Failed to fetch dacha6 calendar")
             return None
+
+    def _get_cached_text(self, cache_key: str) -> str | None:
+        if self.storage is None:
+            return None
+        cached = self.storage.get_cached_text(cache_key)
+        if cached is None:
+            return None
+        text, source = cached
+        logger.info("Using cached content %s from %s", cache_key, source)
+        return text
+
+    def _save_cached_text(self, cache_key: str, text: str, source: str) -> None:
+        if self.storage is None:
+            return
+        self.storage.save_cached_text(cache_key, text, source, datetime.now(self.settings.timezone))
 
     @staticmethod
     def _advice_for_category(category: str) -> str:
@@ -351,6 +399,10 @@ def _clean_html(value: str) -> str:
 
 def _remove_zodiac_symbols(value: str) -> str:
     return ZODIAC_SYMBOLS_RE.sub("", value)
+
+
+def _with_today_title(today: date, text: str) -> str:
+    return f"Что сделать на даче: {today.day} {MONTHS_GENITIVE_RU[today.month]} {today.year}\n\n{text}"
 
 
 def _format_daily_details(

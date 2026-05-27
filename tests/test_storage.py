@@ -69,6 +69,21 @@ class StorageTest(unittest.TestCase):
             ("Рыбы: спокойный день.", "test"),
         )
 
+    def test_content_cache(self) -> None:
+        self.assertIsNone(self.storage.get_cached_text("dacha6:garden:2026-05-27:folk=1"))
+
+        self.storage.save_cached_text(
+            "dacha6:garden:2026-05-27:folk=1",
+            "Что сделать на даче: 27 мая 2026",
+            "dacha6",
+            datetime(2026, 5, 27, 9, 0),
+        )
+
+        self.assertEqual(
+            self.storage.get_cached_text("dacha6:garden:2026-05-27:folk=1"),
+            ("Что сделать на даче: 27 мая 2026", "dacha6"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
