@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -35,6 +35,7 @@ from .keyboards import (
     BTN_TODAY_TIP,
     BTN_WRITE,
     cancel_menu,
+    dacha_months_menu,
     dacha_menu,
     diary_menu,
     main_menu,
@@ -65,6 +66,13 @@ def _is_admin(message: Message, settings: Settings) -> bool:
 
 def _now(settings: Settings) -> datetime:
     return datetime.now(settings.timezone)
+
+
+def _parse_prefixed_month_button(text: str, prefix: str) -> tuple[int, int] | None:
+    expected_prefix = f"{prefix}: "
+    if not text.startswith(expected_prefix):
+        return None
+    return parse_month_button(text.removeprefix(expected_prefix))
 
 
 async def _deny_if_needed(message: Message, settings: Settings) -> bool:
@@ -134,9 +142,26 @@ async def calendar(
 ) -> None:
     if await _deny_if_needed(message, settings):
         return
-    today = _now(settings).date()
+    await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_CALENDAR, _now(settings).date()))
+
+
+@router.message(F.text.regexp(r"^Календарь: (Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
+async def calendar_month(
+    message: Message,
+    settings: Settings,
+    lunar_service: LunarService,
+    dacha6_service: Dacha6Service,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    assert message.text is not None
+    parsed = _parse_prefixed_month_button(message.text, BTN_CALENDAR)
+    if parsed is None:
+        await message.answer("Не понял месяц.", reply_markup=dacha_menu())
+        return
+    year, month = parsed
     await message.answer(
-        await dacha6_service.month_text(today),
+        await dacha6_service.month_text(date(year, month, 1)),
         reply_markup=dacha_menu(),
     )
 
@@ -155,8 +180,21 @@ async def today_tip(message: Message, settings: Settings, dacha6_service: Dacha6
 async def sowing_days(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
+    await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_SOWING_DAYS, _now(settings).date()))
+
+
+@router.message(F.text.regexp(r"^Дни для посева: (Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
+async def sowing_days_month(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    assert message.text is not None
+    parsed = _parse_prefixed_month_button(message.text, BTN_SOWING_DAYS)
+    if parsed is None:
+        await message.answer("Не понял месяц.", reply_markup=dacha_menu())
+        return
+    year, month = parsed
     await message.answer(
-        await dacha6_service.sowing_days_text(),
+        await dacha6_service.sowing_days_text(date(year, month, 1)),
         reply_markup=dacha_menu(),
     )
 
@@ -391,8 +429,11 @@ async def run_bot() -> None:
     storage = Storage(settings.database_path, settings.photos_dir, settings.backups_dir)
     storage.init()
     logger.info("Data directory: %s", settings.data_dir)
-    logger.info("Database path: %s", settings.database_path)
-    logger.info("Diary entries in database: %s", len(storage.all_entries()))
+    logger.info(
+        "Database path: %s; diary entries: %s",
+        settings.database_path,
+        len(storage.all_entries()),
+    )
     horoscope_service = HoroscopeService(storage, settings)
     lunar_service = LunarService(settings)
     dacha6_service = Dacha6Service(settings, lunar_service)

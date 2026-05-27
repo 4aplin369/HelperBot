@@ -24,6 +24,18 @@ BTN_CANCEL = "Отмена"
 BTN_SKIP_CAPTION = "Без подписи"
 
 
+def _available_2026_months(today: date) -> list[int]:
+    start_month = 5
+    test_end_month = 6
+    if today.year < 2026:
+        end_month = test_end_month
+    elif today.year == 2026:
+        end_month = min(12, max(test_end_month, today.month + 1))
+    else:
+        end_month = 12
+    return list(range(start_month, end_month + 1))
+
+
 def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=text) for text in row] for row in rows],
@@ -43,20 +55,18 @@ def dacha_menu() -> ReplyKeyboardMarkup:
     return _keyboard([[BTN_CALENDAR, BTN_TODAY_TIP], [BTN_SOWING_DAYS], [BTN_BACK]])
 
 
+def dacha_months_menu(action: str, today: date) -> ReplyKeyboardMarkup:
+    rows = [[f"{action}: {MONTHS_RU[month]} 2026"] for month in reversed(_available_2026_months(today))]
+    rows.append([BTN_BACK])
+    return _keyboard(rows)
+
+
 def diary_menu() -> ReplyKeyboardMarkup:
     return _keyboard([[BTN_WRITE, BTN_FIND], [BTN_PHOTO, BTN_RECORDS], [BTN_DOWNLOAD], [BTN_BACK]])
 
 
 def records_months_menu(today: date) -> ReplyKeyboardMarkup:
-    start_month = 5
-    if today.year < 2026:
-        months: list[int] = []
-    elif today.year == 2026:
-        months = list(range(start_month, max(start_month, today.month) + 1))
-    else:
-        months = list(range(start_month, 13))
-
-    rows = [[f"{MONTHS_RU[month]} 2026"] for month in reversed(months)]
+    rows = [[f"{MONTHS_RU[month]} 2026"] for month in reversed(_available_2026_months(today))]
     rows.append([BTN_BACK])
     return _keyboard(rows)
 

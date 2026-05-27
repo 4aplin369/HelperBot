@@ -3,13 +3,14 @@ from __future__ import annotations
 import html
 import logging
 import re
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date
 
 import aiohttp
 
 from .config import Settings
-from .content import MONTHS_GENITIVE_RU
+from .content import MONTHS_GENITIVE_RU, MONTHS_RU
 from .lunar_service import LunarService
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ class Dacha6Service:
         return _parse_daily_details(page)
 
     async def month_text(self, today: date) -> str:
-        page = await self._fetch_page()
+        page = await self._fetch_month_page(today.year, today.month)
         if page is None:
             return "Не получилось загрузить календарь dacha6. Попробуйте позже."
 
@@ -92,15 +93,20 @@ class Dacha6Service:
         if not summary and not days:
             return "Не получилось разобрать календарь dacha6. Сайт мог изменить разметку."
 
-        parts = [f"Садоводческий календарь dacha6: {self.settings.lunar_city}, {self.settings.lunar_region}"]
+        parts = [
+            f"Садоводческий календарь dacha6: {MONTHS_RU[today.month]} {today.year}, "
+            f"{self.settings.lunar_city}, {self.settings.lunar_region}"
+        ]
         if summary:
             parts.append(summary)
         if days:
             parts.append(days)
         return _remove_zodiac_symbols("\n\n".join(parts))
 
-    async def sowing_days_text(self) -> str:
-        page = await self._fetch_page()
+    async def sowing_days_text(self, target_month: date | None = None) -> str:
+        if target_month is None:
+            target_month = date.today()
+        page = await self._fetch_month_page(target_month.year, target_month.month)
         if page is None:
             return "Не получилось загрузить таблицу дней для посева. Попробуйте позже."
 
@@ -108,22 +114,36 @@ class Dacha6Service:
         if not rows:
             return "Не получилось разобрать таблицу дней для посева. Сайт мог изменить разметку."
 
-        lines = [f"Дни для посева dacha6: {self.settings.lunar_city}, {self.settings.lunar_region}"]
+        lines = [
+            f"Дни для посева dacha6: {MONTHS_RU[target_month.month]} {target_month.year}, "
+            f"{self.settings.lunar_city}, {self.settings.lunar_region}"
+        ]
         for culture, days in rows:
             lines.append(f"{culture}: {days}")
         return "\n".join(lines)
 
     async def get_day(self, today: date) -> GardenDayInfo | None:
-        page = await self._fetch_page()
+        page = await self._fetch_month_page(today.year, today.month)
         if page is None:
             return None
         return _parse_day(page, today, self.settings.dacha6_calendar_url)
 
     async def _fetch_page(self) -> str | None:
+        return await self._fetch_month_page(date.today().year, date.today().month)
+
+    async def _fetch_month_page(self, year: int, month: int) -> str | None:
+        month_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{year}/{month}/"
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.settings.dacha6_calendar_url,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as response:
+                    response.raise_for_status()
+                    await response.read()
+
+                async with session.get(
+                    month_url,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
@@ -199,7 +219,7 @@ def _month_summary_text(page: str) -> str:
 
 def _month_days_text(page: str, today: date) -> str:
     rows = []
-    for day in range(1, 32):
+    for day in range(1, monthrange(today.year, today.month)[1] + 1):
         row = _day_row_text(page, date(today.year, today.month, day))
         if row is None:
             continue
