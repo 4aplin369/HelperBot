@@ -18,6 +18,7 @@ BTN_WRITE = "Записать"
 BTN_FIND = "Найти"
 BTN_PHOTO = "Фото"
 BTN_RECORDS = "Записи"
+BTN_DOWNLOAD = "Скачать"
 BTN_BACK = "Назад"
 BTN_CANCEL = "Отмена"
 BTN_SKIP_CAPTION = "Без подписи"
@@ -43,7 +44,7 @@ def dacha_menu() -> ReplyKeyboardMarkup:
 
 
 def diary_menu() -> ReplyKeyboardMarkup:
-    return _keyboard([[BTN_WRITE, BTN_FIND], [BTN_PHOTO, BTN_RECORDS], [BTN_BACK]])
+    return _keyboard([[BTN_WRITE, BTN_FIND], [BTN_PHOTO, BTN_RECORDS], [BTN_DOWNLOAD], [BTN_BACK]])
 
 
 def records_months_menu(today: date) -> ReplyKeyboardMarkup:

@@ -10,12 +10,12 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 
 from .config import Settings, load_settings
 from .content import garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
-from .formatting import format_entries, month_title, parse_month_button
+from .formatting import format_entries, format_entries_export, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
 from .lunar_service import LunarService
 from .keyboards import (
@@ -24,6 +24,7 @@ from .keyboards import (
     BTN_CANCEL,
     BTN_DACHA,
     BTN_DIARY,
+    BTN_DOWNLOAD,
     BTN_FIND,
     BTN_HOROSCOPE,
     BTN_PHOTO,
@@ -256,6 +257,21 @@ async def records(message: Message, settings: Settings) -> None:
     if await _deny_if_needed(message, settings):
         return
     await message.answer("Выберите месяц.", reply_markup=records_months_menu(_now(settings).date()))
+
+
+@router.message(F.text == BTN_DOWNLOAD)
+async def download_entries(message: Message, storage: Storage, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    exports_dir = settings.data_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    export_path = exports_dir / f"diary_{_now(settings):%Y%m%d_%H%M%S}.txt"
+    export_path.write_text(format_entries_export(storage.all_entries()), encoding="utf-8")
+    await message.answer_document(
+        FSInputFile(export_path, filename="diary.txt"),
+        caption="Выгрузка дневника.",
+        reply_markup=diary_menu(),
+    )
 
 
 @router.message(F.text.regexp(r"^(Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))

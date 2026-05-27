@@ -5,6 +5,7 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
+from helper_bot.formatting import format_entries_export
 from helper_bot.storage import Storage
 
 
@@ -37,6 +38,19 @@ class StorageTest(unittest.TestCase):
         self.assertFalse(self.storage.was_digest_sent(digest_date, 111))
         self.storage.mark_digest_sent(digest_date, 111, datetime(2026, 5, 21, 8, 0))
         self.assertTrue(self.storage.was_digest_sent(digest_date, 111))
+
+    def test_all_entries_and_export(self) -> None:
+        self.storage.add_entry(111, "Починил розетку", datetime(2026, 5, 22, 15, 0))
+        self.storage.add_entry(222, "Посадил редиску", datetime(2026, 5, 21, 9, 30))
+
+        entries = self.storage.all_entries()
+        self.assertEqual([entry.text for entry in entries], ["Посадил редиску", "Починил розетку"])
+
+        export_text = format_entries_export(entries)
+        self.assertIn("Дневник дел", export_text)
+        self.assertIn("21.05.2026", export_text)
+        self.assertIn("09:30 Посадил редиску", export_text)
+        self.assertIn("15:00 Починил розетку", export_text)
 
     def test_horoscope_cache(self) -> None:
         horoscope_date = date(2026, 5, 21)

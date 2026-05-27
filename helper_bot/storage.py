@@ -121,6 +121,17 @@ class Storage:
             ).fetchall()
         return [self._entry_from_row(row) for row in rows]
 
+    def all_entries(self) -> list[DiaryEntry]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, text, photo_file_id, photo_local_path, created_at
+                FROM diary_entries
+                ORDER BY created_at ASC, id ASC
+                """,
+            ).fetchall()
+        return [self._entry_from_row(row) for row in rows]
+
     def was_digest_sent(self, digest_date: date, user_id: int) -> bool:
         with self._connect() as conn:
             row = conn.execute(
