@@ -43,7 +43,7 @@ Copy-Item .env.example .env
 - `ADMIN_USER_IDS` - Telegram ID дочери, которой доступны настройки.
 - `TIMEZONE` - часовой пояс для расписания, сейчас `Asia/Barnaul`.
 - `DIGEST_TIME` - время утреннего дайджеста в формате `HH:MM`.
-- `DATA_DIR` - папка для базы, фото и резервных копий.
+- `DATA_DIR` - папка для базы, фото и резервных копий. На Railway должна совпадать с Mount Path volume, например `/app/data`.
 - `HOROSCOPE_PROVIDER` - источник гороскопа: `astrology_api` или `freehoroscopeapi`.
 - `HOROSCOPE_SIGN` - знак зодиака для гороскопа, сейчас `pisces`.
 - `HOROSCOPE_LANGUAGE` - язык гороскопа, сейчас `ru`.
@@ -54,4 +54,6 @@ Copy-Item .env.example .env
 
 ## Важно
 
-Данные дневника хранятся в SQLite-базе в папке `data/`. Фото сохраняются в Telegram как `file_id`, а также скачиваются локально в `data/photos/`, если Telegram отдал файл.
+Данные дневника хранятся в SQLite-базе `helper_bot.sqlite3` внутри `DATA_DIR`. Фото сохраняются в Telegram как `file_id`, а также скачиваются локально в `DATA_DIR/photos/`, если Telegram отдал файл.
+
+Для Railway нужен persistent volume: Mount Path volume и переменная `DATA_DIR` должны указывать на один и тот же путь, например `/app/data`. При старте бот пишет в логи `Data directory`, `Database path` и количество записей в базе.

@@ -81,7 +81,13 @@ def load_settings() -> Settings:
         admin_user_ids = allowed_user_ids
 
     digest_hour, digest_minute = _parse_time(os.getenv("DIGEST_TIME", "08:00"))
-    data_dir = Path(os.getenv("DATA_DIR", "data")).resolve()
+    data_dir_value = os.getenv("DATA_DIR", "").strip()
+    railway_volume_dir = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    if railway_volume_dir and (not data_dir_value or data_dir_value == "data"):
+        data_dir_value = railway_volume_dir
+    if not data_dir_value:
+        data_dir_value = "data"
+    data_dir = Path(data_dir_value).resolve()
 
     return Settings(
         bot_token=bot_token,
