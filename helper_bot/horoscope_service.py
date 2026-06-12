@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -17,6 +19,10 @@ SIGN_NAMES_RU = {
 
 API_SIGN_NAMES = {
     "pisces": "Pisces",
+}
+
+MAIL_RU_SIGN_NAMES = {
+    "pisces": "pisces",
 }
 
 
@@ -37,7 +43,7 @@ class HoroscopeService:
             cached = self.storage.get_horoscope(today, sign)
             if cached is not None:
                 text, source = cached
-                if source != "fallback" or not self.settings.horoscope_api_key:
+                if source == self.settings.horoscope_provider:
                     return HoroscopeResult(text=text, source=source)
 
         result = await self._fetch_from_api(sign, today)
@@ -54,40 +60,66 @@ class HoroscopeService:
         return result
 
     async def _fetch_from_api(self, sign: str, today: date) -> HoroscopeResult | None:
+        if self.settings.horoscope_provider == "mail_ru":
+            return await self._fetch_mail_ru(sign)
         if self.settings.horoscope_provider == "freehoroscopeapi":
             return await self._fetch_free_horoscope_api(sign)
         return await self._fetch_astrology_api(sign, today)
 
-    async def _fetch_astrology_api(self, sign: str, today: date) -> HoroscopeResult | None:
-        if not self.settings.horoscope_api_key:
-            logger.warning("HOROSCOPE_API_KEY is empty; using fallback horoscope")
-            return None
-
+    async def _fetch_mail_ru(self, sign: str) -> HoroscopeResult | None:
+        sign_slug = MAIL_RU_SIGN_NAMES.get(sign, sign)
+        url = self.settings.horoscope_api_url.format(sign=sign_slug).rstrip("/")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.settings.horoscope_api_url,
-                    json={
-                        "sign": API_SIGN_NAMES.get(sign, sign.title()),
-                        "date": today.isoformat(),
-                        "language": self.settings.horoscope_language,
-                        "format": "paragraph",
-                        "use_emoji": False,
-                    },
-                    headers={"Authorization": f"Bearer {self.settings.horoscope_api_key}"},
+                async with session.get(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0"},
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
                     response.raise_for_status()
-                    payload = await response.json()
+                    page = await response.text()
         except Exception:
-            logger.exception("Failed to fetch horoscope from Astrology API")
+            logger.exception("Failed to fetch horoscope from Mail.ru")
             return None
 
-        text = self._extract_text(payload)
+        text = _extract_mail_ru_text(page)
         if not text:
-            logger.warning("Astrology API returned no text: %s", payload)
+            logger.warning("Mail.ru horoscope page returned no text")
             return None
-        return HoroscopeResult(text=text, source="astrology_api")
+        return HoroscopeResult(text=text, source="mail_ru")
+
+    async def _fetch_astrology_api(self, sign: str, today: date) -> HoroscopeResult | None:
+        # Старый источник оставлен для быстрого отката, если Mail.ru поменяет разметку.
+        # if not self.settings.horoscope_api_key:
+        #     logger.warning("HOROSCOPE_API_KEY is empty; using fallback horoscope")
+        #     return None
+        #
+        # try:
+        #     async with aiohttp.ClientSession() as session:
+        #         async with session.post(
+        #             self.settings.horoscope_api_url,
+        #             json={
+        #                 "sign": API_SIGN_NAMES.get(sign, sign.title()),
+        #                 "date": today.isoformat(),
+        #                 "language": self.settings.horoscope_language,
+        #                 "format": "paragraph",
+        #                 "use_emoji": False,
+        #             },
+        #             headers={"Authorization": f"Bearer {self.settings.horoscope_api_key}"},
+        #             timeout=aiohttp.ClientTimeout(total=10),
+        #         ) as response:
+        #             response.raise_for_status()
+        #             payload = await response.json()
+        # except Exception:
+        #     logger.exception("Failed to fetch horoscope from Astrology API")
+        #     return None
+        #
+        # text = self._extract_text(payload)
+        # if not text:
+        #     logger.warning("Astrology API returned no text: %s", payload)
+        #     return None
+        # return HoroscopeResult(text=text, source="astrology_api")
+        return None
 
     async def _fetch_free_horoscope_api(self, sign: str) -> HoroscopeResult | None:
         try:
@@ -157,3 +189,27 @@ class HoroscopeService:
             f"{sign_name}: сегодня хороший день для спокойных дел, порядка и небольших задач без спешки. "
             "Лучше выбрать одно главное дело и спокойно довести его до конца."
         )
+
+
+def _extract_mail_ru_text(page: str) -> str | None:
+    article_match = re.search(
+        r'<main[^>]+itemProp="articleBody"[^>]*>(.*?)</main>',
+        page,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not article_match:
+        return None
+
+    paragraphs: list[str] = []
+    for paragraph_html in re.findall(r"<p[^>]*>(.*?)</p>", article_match.group(1), flags=re.DOTALL | re.IGNORECASE):
+        text = _clean_html(paragraph_html)
+        if text:
+            paragraphs.append(text)
+    return "\n\n".join(paragraphs) if paragraphs else None
+
+
+def _clean_html(value: str) -> str:
+    value = re.sub(r"<br\s*/?>", "\n", value, flags=re.IGNORECASE)
+    value = re.sub(r"<[^>]+>", "", value)
+    value = html.unescape(value)
+    return re.sub(r"\s+", " ", value).strip()

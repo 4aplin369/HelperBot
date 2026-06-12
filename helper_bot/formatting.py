@@ -6,6 +6,10 @@ from .content import MONTHS_RU
 from .storage import DiaryEntry
 
 
+TELEGRAM_TEXT_LIMIT = 4096
+LONG_ENTRY_WARNING_THRESHOLD = 3800
+
+
 def format_entry(entry: DiaryEntry) -> str:
     date_text = entry.created_at.strftime("%d.%m.%Y")
     time_text = entry.created_at.strftime("%H:%M")
@@ -18,6 +22,32 @@ def format_entries(entries: list[DiaryEntry], empty_text: str) -> str:
     if not entries:
         return empty_text
     return "\n\n".join(format_entry(entry) for entry in entries)
+
+
+def format_saved_entry(entry: DiaryEntry) -> str:
+    parts = [
+        f"Записал:\n{entry.created_at:%d.%m.%Y %H:%M}\n{entry.text}",
+        f"Длина записи: {len(entry.text)} символов.",
+    ]
+    warning = long_entry_warning(entry.text)
+    if warning:
+        parts.append(warning)
+    return "\n\n".join(parts)
+
+
+def long_entry_warning(text: str) -> str | None:
+    stripped = text.rstrip()
+    if len(text) >= LONG_ENTRY_WARNING_THRESHOLD:
+        return (
+            "Внимание: запись очень длинная. У Telegram есть ограничение около "
+            f"{TELEGRAM_TEXT_LIMIT} символов на одно сообщение, поэтому лучше разбивать такие записи на несколько частей."
+        )
+    if stripped.endswith("…") or stripped.endswith("..."):
+        return (
+            "Внимание: запись заканчивается многоточием. Похоже, текст мог прийти уже обрезанным. "
+            "Лучше отправить продолжение отдельной записью."
+        )
+    return None
 
 
 def format_entries_export(entries: list[DiaryEntry]) -> str:

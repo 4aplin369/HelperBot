@@ -97,11 +97,11 @@ def load_settings() -> Settings:
         digest_hour=digest_hour,
         digest_minute=digest_minute,
         data_dir=data_dir,
-        horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "astrology_api").strip().lower(),
+        horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "mail_ru").strip().lower(),
         horoscope_sign=os.getenv("HOROSCOPE_SIGN", "pisces").strip().lower(),
         horoscope_api_url=os.getenv(
             "HOROSCOPE_API_URL",
-            "https://api.astrology-api.io/api/v3/horoscope/sign/daily/text",
+            "https://horo.mail.ru/prediction/{sign}/today/",
         ).strip(),
         horoscope_api_key=os.getenv("HOROSCOPE_API_KEY", "").strip(),
         horoscope_language=os.getenv("HOROSCOPE_LANGUAGE", "ru").strip().lower(),

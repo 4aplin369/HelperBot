@@ -44,10 +44,10 @@ Copy-Item .env.example .env
 - `TIMEZONE` - часовой пояс для расписания, сейчас `Asia/Barnaul`.
 - `DIGEST_TIME` - время утреннего дайджеста в формате `HH:MM`.
 - `DATA_DIR` - папка для базы, фото и резервных копий. На Railway должна совпадать с Mount Path volume, например `/app/data`.
-- `HOROSCOPE_PROVIDER` - источник гороскопа: `astrology_api` или `freehoroscopeapi`.
+- `HOROSCOPE_PROVIDER` - источник гороскопа: `mail_ru`, `astrology_api` или `freehoroscopeapi`.
 - `HOROSCOPE_SIGN` - знак зодиака для гороскопа, сейчас `pisces`.
 - `HOROSCOPE_LANGUAGE` - язык гороскопа, сейчас `ru`.
-- `HOROSCOPE_API_URL` - endpoint ежедневного гороскопа.
+- `HOROSCOPE_API_URL` - endpoint ежедневного гороскопа. Для `mail_ru`: `https://horo.mail.ru/prediction/{sign}/today/`.
 - `HOROSCOPE_API_KEY` - ключ Astrology API. Хранить только в `.env`.
 - `LUNAR_REGION`, `LUNAR_CITY`, `LUNAR_LATITUDE`, `LUNAR_LONGITUDE` - регион для лунного календаря, сейчас Барнаул, Алтайский край.
 - `DACHA6_CALENDAR_URL` - региональная страница садоводческого календаря dacha6.

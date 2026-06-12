@@ -15,7 +15,7 @@ from aiogram.types import FSInputFile, Message
 from .config import Settings, load_settings
 from .content import garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
-from .formatting import format_entries, format_entries_export, month_title, parse_month_button
+from .formatting import format_entries, format_entries_export, format_saved_entry, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
 from .lunar_service import LunarService
 from .keyboards import (
@@ -261,7 +261,7 @@ async def save_entry_text(message: Message, state: FSMContext, storage: Storage,
     entry = storage.add_entry(message.from_user.id, text, _now(settings))
     await state.clear()
     await message.answer(
-        f"Записал:\n{entry.created_at:%d.%m.%Y %H:%M}\n{entry.text}",
+        format_saved_entry(entry),
         reply_markup=diary_menu(),
     )
 

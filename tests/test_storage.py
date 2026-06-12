@@ -11,7 +11,7 @@ from helper_bot.storage import Storage
 
 class StorageTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(dir=Path.cwd())
         root = Path(self.tmp.name)
         self.storage = Storage(root / "bot.sqlite3", root / "photos", root / "backups")
         self.storage.init()
