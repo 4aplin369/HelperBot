@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import FSInputFile, Message
@@ -54,6 +54,7 @@ class DiaryStates(StatesGroup):
     waiting_search_query = State()
     waiting_photo = State()
     waiting_photo_caption = State()
+    waiting_import_entry_text = State()
 
 
 def _is_allowed(message: Message, settings: Settings) -> bool:
@@ -73,6 +74,18 @@ def _parse_prefixed_month_button(text: str, prefix: str) -> tuple[int, int] | No
     if not text.startswith(expected_prefix):
         return None
     return parse_month_button(text.removeprefix(expected_prefix))
+
+
+def parse_import_entry_command(text: str, timezone) -> tuple[datetime, str] | None:
+    parts = text.strip().split(maxsplit=3)
+    if len(parts) < 3:
+        return None
+    try:
+        created_at = datetime.strptime(f"{parts[1]} {parts[2]}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone)
+    except ValueError:
+        return None
+    entry_text = parts[3].strip() if len(parts) == 4 else ""
+    return created_at, entry_text
 
 
 async def _deny_if_needed(message: Message, settings: Settings) -> bool:
@@ -239,6 +252,63 @@ async def test_digest_handler(
         ),
         reply_markup=main_menu(True),
     )
+
+
+@router.message(Command("import_entry"))
+async def import_entry_command(message: Message, state: FSMContext, storage: Storage, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Импорт старых записей доступен только дочери.")
+        return
+    parsed = parse_import_entry_command(message.text or "", settings.timezone)
+    if parsed is None:
+        await message.answer(
+            "Формат:\n/import_entry 2026-06-03 14:30 текст записи\n\n"
+            "Можно без текста: /import_entry 2026-06-03 14:30, а запись отправить следующим сообщением.",
+            reply_markup=diary_menu(),
+        )
+        return
+
+    created_at, entry_text = parsed
+    if entry_text:
+        assert message.from_user is not None
+        entry = storage.add_entry(message.from_user.id, entry_text, created_at)
+        await state.clear()
+        await message.answer("Импортировал старую запись.\n\n" + format_saved_entry(entry), reply_markup=diary_menu())
+        return
+
+    await state.set_state(DiaryStates.waiting_import_entry_text)
+    await state.update_data(import_created_at=created_at.isoformat())
+    await message.answer(
+        f"Дата для старой записи: {created_at:%d.%m.%Y %H:%M}\nТеперь отправьте текст записи.",
+        reply_markup=cancel_menu(),
+    )
+
+
+@router.message(DiaryStates.waiting_import_entry_text, F.text)
+async def save_imported_entry_text(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await state.clear()
+        await message.answer("Импорт старых записей доступен только дочери.", reply_markup=diary_menu())
+        return
+    text = message.text or ""
+    if text == BTN_CANCEL:
+        await cancel(message, state, settings)
+        return
+    data = await state.get_data()
+    created_at = datetime.fromisoformat(str(data["import_created_at"]))
+    assert message.from_user is not None
+    entry = storage.add_entry(message.from_user.id, text, created_at)
+    await state.clear()
+    await message.answer("Импортировал старую запись.\n\n" + format_saved_entry(entry), reply_markup=diary_menu())
 
 
 @router.message(F.text == BTN_WRITE)
