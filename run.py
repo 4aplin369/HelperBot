@@ -6,5 +6,6 @@ from helper_bot.bot import main
 
 
 if __name__ == "__main__":
-    os.environ.setdefault("DATA_DIR", "/data")
+    if os.getenv("DATA_DIR") in {None, "", "/app/data"}:
+        os.environ["DATA_DIR"] = "/data"
     main()

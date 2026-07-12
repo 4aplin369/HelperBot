@@ -80,20 +80,25 @@ class Dacha6Service:
         return text
 
     async def get_daily_details(self, today: date) -> DailyGardenDetails | None:
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.settings.dacha6_calendar_url,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
 
                 day_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{today.year}/{today.month}/{today.day}/"
-                async with session.get(day_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                async with session.get(day_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                     response.raise_for_status()
                     page = await response.text()
-        except Exception:
-            logger.exception("Failed to fetch dacha6 daily details")
+        except aiohttp.ClientResponseError as exc:
+            logger.warning("Failed to fetch dacha6 daily details: HTTP %s %s", exc.status, exc.request_info.real_url)
+            return None
+        except Exception as exc:
+            logger.warning("Failed to fetch dacha6 daily details: %s", exc)
             return None
 
         if self.settings.lunar_city not in page and self.settings.lunar_region not in page:
@@ -166,10 +171,12 @@ class Dacha6Service:
 
     async def _fetch_month_page(self, year: int, month: int) -> str | None:
         month_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{year}/{month}/"
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.settings.dacha6_calendar_url,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
@@ -177,12 +184,16 @@ class Dacha6Service:
 
                 async with session.get(
                     month_url,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
                     return await response.text()
-        except Exception:
-            logger.exception("Failed to fetch dacha6 calendar")
+        except aiohttp.ClientResponseError as exc:
+            logger.warning("Failed to fetch dacha6 calendar: HTTP %s %s", exc.status, exc.request_info.real_url)
+            return None
+        except Exception as exc:
+            logger.warning("Failed to fetch dacha6 calendar: %s", exc)
             return None
 
     def _get_cached_text(self, cache_key: str) -> str | None:
