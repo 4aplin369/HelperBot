@@ -80,12 +80,20 @@ def parse_import_entry_command(text: str, timezone) -> tuple[datetime, str] | No
     parts = text.strip().split(maxsplit=3)
     if len(parts) < 3:
         return None
-    try:
-        created_at = datetime.strptime(f"{parts[1]} {parts[2]}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone)
-    except ValueError:
+    created_at = _parse_import_datetime(parts[1], parts[2], timezone)
+    if created_at is None:
         return None
     entry_text = parts[3].strip() if len(parts) == 4 else ""
     return created_at, entry_text
+
+
+def _parse_import_datetime(date_text: str, time_text: str, timezone) -> datetime | None:
+    for date_format in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(f"{date_text} {time_text}", f"{date_format} %H:%M").replace(tzinfo=timezone)
+        except ValueError:
+            continue
+    return None
 
 
 async def _deny_if_needed(message: Message, settings: Settings) -> bool:
@@ -264,8 +272,9 @@ async def import_entry_command(message: Message, state: FSMContext, storage: Sto
     parsed = parse_import_entry_command(message.text or "", settings.timezone)
     if parsed is None:
         await message.answer(
-            "Формат:\n/import_entry 2026-06-03 14:30 текст записи\n\n"
-            "Можно без текста: /import_entry 2026-06-03 14:30, а запись отправить следующим сообщением.",
+            "Формат:\n/import_entry 2026-06-03 14:30 текст записи\n"
+            "или:\n/import_entry 03.06.2026 14:30 текст записи\n\n"
+            "Можно без текста: /import_entry 03.06.2026 14:30, а запись отправить следующим сообщением.",
             reply_markup=diary_menu(),
         )
         return

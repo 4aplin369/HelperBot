@@ -26,8 +26,19 @@ class ImportEntryCommandTest(unittest.TestCase):
         self.assertEqual(created_at.isoformat(), "2026-06-03T14:30:00+07:00")
         self.assertEqual(text, "")
 
+    def test_parse_import_entry_with_russian_date_format(self) -> None:
+        parsed = parse_import_entry_command(
+            "/import_entry 08.07.2026 17:06 папа работал у Колиного шефа",
+            ZoneInfo("Asia/Barnaul"),
+        )
+
+        assert parsed is not None
+        created_at, text = parsed
+        self.assertEqual(created_at.isoformat(), "2026-07-08T17:06:00+07:00")
+        self.assertEqual(text, "папа работал у Колиного шефа")
+
     def test_parse_import_entry_rejects_bad_date(self) -> None:
-        self.assertIsNone(parse_import_entry_command("/import_entry 03.06.2026 14:30 текст", ZoneInfo("Asia/Barnaul")))
+        self.assertIsNone(parse_import_entry_command("/import_entry 2026/06/03 14:30 текст", ZoneInfo("Asia/Barnaul")))
 
 
 if __name__ == "__main__":
