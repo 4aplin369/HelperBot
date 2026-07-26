@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from .content import DEFAULT_PLANTS, MONTHS_RU
 
@@ -11,7 +11,9 @@ BTN_DACHA = "Дача"
 BTN_DIARY = "Дневник"
 BTN_HOROSCOPE = "Гороскоп"
 BTN_SETTINGS = "Настройки"
-BTN_TEST_DIGEST = "Тест дайджеста"
+BTN_TEST = "Тест"
+BTN_TEST_DIGEST = "Тест утреннего дайджеста"
+BTN_TEST_DIARY_REMINDER = "Тест вечернего сообщения"
 BTN_CALENDAR = "Календарь"
 BTN_PLANTS = "Растения"
 BTN_TODAY_TIP = "Что сделать?"
@@ -22,6 +24,7 @@ BTN_RECORDS = "Записи"
 BTN_BACK = "Назад"
 BTN_CANCEL = "Отмена"
 BTN_SKIP_CAPTION = "Без подписи"
+CALLBACK_OPEN_DIARY = "open_diary"
 
 
 def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
@@ -35,8 +38,20 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE]]
     if is_admin:
-        rows.append([BTN_TEST_DIGEST, BTN_SETTINGS])
+        rows.append([BTN_TEST, BTN_SETTINGS])
     return _keyboard(rows)
+
+
+def test_menu() -> ReplyKeyboardMarkup:
+    return _keyboard([[BTN_TEST_DIGEST], [BTN_TEST_DIARY_REMINDER], [BTN_BACK]])
+
+
+def diary_reminder_actions() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📖 Открыть дневник", callback_data=CALLBACK_OPEN_DIARY)]
+        ]
+    )
 
 
 def dacha_menu() -> ReplyKeyboardMarkup:

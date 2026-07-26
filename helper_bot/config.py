@@ -16,6 +16,8 @@ class Settings:
     timezone: ZoneInfo
     digest_hour: int
     digest_minute: int
+    diary_reminder_hour: int
+    diary_reminder_minute: int
     data_dir: Path
     horoscope_provider: str
     horoscope_sign: str
@@ -52,16 +54,16 @@ def _parse_ids(value: str) -> frozenset[int]:
     return frozenset(ids)
 
 
-def _parse_time(value: str) -> tuple[int, int]:
+def _parse_time(value: str, variable_name: str) -> tuple[int, int]:
     try:
         hour_text, minute_text = value.split(":", 1)
         hour = int(hour_text)
         minute = int(minute_text)
     except ValueError as exc:
-        raise ValueError("DIGEST_TIME must be in HH:MM format") from exc
+        raise ValueError(f"{variable_name} must be in HH:MM format") from exc
 
     if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-        raise ValueError("DIGEST_TIME must be a valid 24-hour time")
+        raise ValueError(f"{variable_name} must be a valid 24-hour time")
     return hour, minute
 
 
@@ -80,16 +82,22 @@ def load_settings() -> Settings:
     if not admin_user_ids:
         admin_user_ids = allowed_user_ids
 
-    digest_hour, digest_minute = _parse_time(os.getenv("DIGEST_TIME", "08:00"))
+    digest_hour, digest_minute = _parse_time(os.getenv("DIGEST_TIME", "08:00"), "DIGEST_TIME")
+    diary_reminder_hour, diary_reminder_minute = _parse_time(
+        os.getenv("DIARY_REMINDER_TIME", "18:00"),
+        "DIARY_REMINDER_TIME",
+    )
     data_dir = Path(os.getenv("DATA_DIR", "data")).resolve()
 
     return Settings(
         bot_token=bot_token,
         allowed_user_ids=allowed_user_ids,
         admin_user_ids=admin_user_ids,
-        timezone=ZoneInfo(os.getenv("TIMEZONE", "Europe/Moscow")),
+        timezone=ZoneInfo(os.getenv("TIMEZONE", "Asia/Barnaul")),
         digest_hour=digest_hour,
         digest_minute=digest_minute,
+        diary_reminder_hour=diary_reminder_hour,
+        diary_reminder_minute=diary_reminder_minute,
         data_dir=data_dir,
         horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "astrology_api").strip().lower(),
         horoscope_sign=os.getenv("HOROSCOPE_SIGN", "pisces").strip().lower(),

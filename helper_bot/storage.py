@@ -56,6 +56,14 @@ class Storage:
                     PRIMARY KEY (digest_date, user_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS sent_diary_reminders (
+                    reminder_date TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    sent_at TEXT NOT NULL,
+                    PRIMARY KEY (reminder_date, user_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS daily_horoscopes (
                     horoscope_date TEXT NOT NULL,
                     sign TEXT NOT NULL,
@@ -137,6 +145,44 @@ class Storage:
                 VALUES (?, ?, ?)
                 """,
                 (digest_date.isoformat(), user_id, sent_at.isoformat()),
+            )
+
+    def was_diary_reminder_sent(self, reminder_date: date, user_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM sent_diary_reminders WHERE reminder_date = ? AND user_id = ?",
+                (reminder_date.isoformat(), user_id),
+            ).fetchone()
+        return row is not None
+
+    def last_diary_reminder_text(self, user_id: int) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT text
+                FROM sent_diary_reminders
+                WHERE user_id = ?
+                ORDER BY reminder_date DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+        return None if row is None else str(row["text"])
+
+    def mark_diary_reminder_sent(
+        self,
+        reminder_date: date,
+        user_id: int,
+        text: str,
+        sent_at: datetime,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO sent_diary_reminders(reminder_date, user_id, text, sent_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (reminder_date.isoformat(), user_id, text, sent_at.isoformat()),
             )
 
     def backup(self, now: datetime) -> Path:

@@ -38,6 +38,22 @@ class StorageTest(unittest.TestCase):
         self.storage.mark_digest_sent(digest_date, 111, datetime(2026, 5, 21, 8, 0))
         self.assertTrue(self.storage.was_digest_sent(digest_date, 111))
 
+    def test_diary_reminder_marker_and_last_text(self) -> None:
+        reminder_date = date(2026, 5, 21)
+
+        self.assertFalse(self.storage.was_diary_reminder_sent(reminder_date, 111))
+        self.assertIsNone(self.storage.last_diary_reminder_text(111))
+
+        self.storage.mark_diary_reminder_sent(
+            reminder_date,
+            111,
+            "Как прошёл день?",
+            datetime(2026, 5, 21, 18, 0),
+        )
+
+        self.assertTrue(self.storage.was_diary_reminder_sent(reminder_date, 111))
+        self.assertEqual(self.storage.last_diary_reminder_text(111), "Как прошёл день?")
+
     def test_horoscope_cache(self) -> None:
         horoscope_date = date(2026, 5, 21)
         self.assertIsNone(self.storage.get_horoscope(horoscope_date, "pisces"))

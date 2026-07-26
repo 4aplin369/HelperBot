@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import date
 
 
@@ -115,6 +116,25 @@ PLANT_NOTES = {
 }
 
 DEFAULT_PLANTS = tuple(PLANT_NOTES.keys())
+
+
+DIARY_REMINDERS = (
+    "📖 Дневник сам себя не заполнит 😄",
+    "Пора оставить пару строк для себя будущего.",
+    "Не дай сегодняшнему дню пропасть без следа.",
+    "Сегодняшний день уже почти история. Запишем?",
+    "Потратим минутку на воспоминания?",
+    "Пока не забыл — что сегодня было?",
+    "Что расскажешь дневнику сегодня?",
+    "Время вечернего подведения итогов.",
+    "Один вопрос на сегодня: как прошёл день?",
+    "Две минуты сейчас — спасибо себе через год.",
+)
+
+
+def diary_reminder(previous_text: str | None = None) -> str:
+    choices = [text for text in DIARY_REMINDERS if text != previous_text]
+    return random.choice(choices or list(DIARY_REMINDERS))
 
 
 def current_month_calendar(today: date) -> str:

@@ -10,10 +10,10 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from .config import Settings, load_settings
-from .content import PLANT_NOTES, garden_tip, horoscope, horoscope_title, morning_digest
+from .content import PLANT_NOTES, diary_reminder, garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
 from .formatting import format_entries, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
@@ -31,18 +31,23 @@ from .keyboards import (
     BTN_RECORDS,
     BTN_SETTINGS,
     BTN_SKIP_CAPTION,
+    BTN_TEST,
     BTN_TEST_DIGEST,
+    BTN_TEST_DIARY_REMINDER,
     BTN_TODAY_TIP,
     BTN_WRITE,
+    CALLBACK_OPEN_DIARY,
     cancel_menu,
     dacha_menu,
     diary_menu,
+    diary_reminder_actions,
     main_menu,
     photo_caption_menu,
     plants_menu,
     records_months_menu,
+    test_menu,
 )
-from .scheduler import backup_loop, digest_loop
+from .scheduler import backup_loop, diary_reminder_loop, digest_loop
 from .storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -193,10 +198,23 @@ async def settings_handler(message: Message, settings: Settings) -> None:
     await message.answer(
         "Настройки первой версии меняются в файле .env:\n"
         f"- время дайджеста: {settings.digest_hour:02d}:{settings.digest_minute:02d}\n"
+        "- вечернее напоминание о дневнике: "
+        f"{settings.diary_reminder_hour:02d}:{settings.diary_reminder_minute:02d}\n"
         f"- часовой пояс: {settings.timezone.key}\n"
         "- доступ: ALLOWED_USER_IDS",
         reply_markup=main_menu(True),
     )
+
+
+@router.message(F.text == BTN_TEST)
+async def test_menu_handler(message: Message, state: FSMContext, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Тесты доступны только дочери.")
+        return
+    await state.clear()
+    await message.answer("Что протестировать?", reply_markup=test_menu())
 
 
 @router.message(F.text == BTN_TEST_DIGEST)
@@ -210,7 +228,7 @@ async def test_digest_handler(
     if await _deny_if_needed(message, settings):
         return
     if not _is_admin(message, settings):
-        await message.answer("Тест дайджеста доступен только дочери.")
+        await message.answer("Тесты доступны только дочери.")
         return
     horoscope_result = await horoscope_service.get_daily(_now(settings).date())
     await message.answer(
@@ -222,8 +240,36 @@ async def test_digest_handler(
             lunar_service.daily_text(_now(settings).date()),
             await dacha6_service.garden_text(_now(settings).date()),
         ),
-        reply_markup=main_menu(True),
+        reply_markup=test_menu(),
     )
+
+
+@router.message(F.text == BTN_TEST_DIARY_REMINDER)
+async def test_diary_reminder_handler(message: Message, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Тесты доступны только дочери.")
+        return
+    await message.answer(diary_reminder(), reply_markup=diary_reminder_actions())
+
+
+@router.callback_query(F.data == CALLBACK_OPEN_DIARY)
+async def open_diary_from_reminder(
+    callback: CallbackQuery,
+    state: FSMContext,
+    settings: Settings,
+) -> None:
+    if callback.from_user.id not in settings.allowed_user_ids:
+        await callback.answer("Этот бот семейный и закрытый.", show_alert=True)
+        return
+    await callback.answer()
+    await state.clear()
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "Дневник дел: можно записывать дачу, дом, гараж, ремонт и любые проекты.",
+            reply_markup=diary_menu(),
+        )
 
 
 @router.message(F.text == BTN_WRITE)
@@ -412,6 +458,7 @@ async def run_bot() -> None:
     dp["dacha6_service"] = dacha6_service
 
     asyncio.create_task(digest_loop(bot, storage, settings, horoscope_service, lunar_service, dacha6_service))
+    asyncio.create_task(diary_reminder_loop(bot, storage, settings))
     asyncio.create_task(backup_loop(storage, settings))
 
     logger.info("HelperBot started")

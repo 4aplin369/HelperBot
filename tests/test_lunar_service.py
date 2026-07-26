@@ -18,7 +18,7 @@ class LunarServiceTest(unittest.TestCase):
             "LUNAR_REGION": "Алтайский край",
             "LUNAR_CITY": "Барнаул",
         }
-        with patch.dict(os.environ, env, clear=True):
+        with patch("helper_bot.config.load_dotenv"), patch.dict(os.environ, env, clear=True):
             settings = load_settings()
 
         text = LunarService(settings).daily_text(date(2026, 5, 21))
