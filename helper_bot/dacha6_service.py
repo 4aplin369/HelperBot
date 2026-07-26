@@ -3,16 +3,19 @@ from __future__ import annotations
 import html
 import logging
 import re
+from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 import aiohttp
 
 from .config import Settings
-from .content import MONTHS_GENITIVE_RU
+from .content import MONTHS_GENITIVE_RU, MONTHS_RU
 from .lunar_service import LunarService
+from .storage import Storage
 
 logger = logging.getLogger(__name__)
+ZODIAC_SYMBOLS_RE = re.compile(r"\s*[♈♉♊♋♌♍♎♏♐♑♒♓]")
 
 
 @dataclass(frozen=True)
@@ -33,46 +36,69 @@ class DailyGardenDetails:
 
 
 class Dacha6Service:
-    def __init__(self, settings: Settings, lunar_service: LunarService) -> None:
+    def __init__(self, settings: Settings, lunar_service: LunarService, storage: Storage | None = None) -> None:
         self.settings = settings
         self.lunar_service = lunar_service
+        self.storage = storage
 
     async def garden_text(self, today: date, include_folk_signs: bool = True) -> str:
+        cache_key = f"dacha6:garden:{today.isoformat()}:folk={int(include_folk_signs)}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
         info = await self.get_day(today)
         if info is None:
-            return self.lunar_service.garden_text(today)
+            text = _with_today_title(today, self.lunar_service.garden_text(today))
+            self._save_cached_text(cache_key, text, "fallback")
+            return text
 
         details = await self.get_daily_details(today)
         if details is not None:
-            return _format_daily_details(
-                settings=self.settings,
-                info=info,
-                details=details,
-                include_folk_signs=include_folk_signs,
+            text = _with_today_title(
+                today,
+                _format_daily_details(
+                    settings=self.settings,
+                    info=info,
+                    details=details,
+                    include_folk_signs=include_folk_signs,
+                ),
             )
+            self._save_cached_text(cache_key, text, "dacha6")
+            return text
 
-        return (
-            f"По календарю dacha6 для региона {self.settings.lunar_city}, {self.settings.lunar_region}: "
-            f"{info.category.lower()}.\n"
-            f"{self._advice_for_category(info.category)}\n"
-            f"{info.moon_info}"
+        text = _with_today_title(
+            today,
+            _remove_zodiac_symbols(
+                f"По календарю dacha6 для региона {self.settings.lunar_city}, {self.settings.lunar_region}: "
+                f"{info.category.lower()}.\n"
+                f"{self._advice_for_category(info.category)}\n"
+                f"{info.moon_info}"
+            ),
         )
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
 
     async def get_daily_details(self, today: date) -> DailyGardenDetails | None:
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.settings.dacha6_calendar_url,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
 
                 day_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{today.year}/{today.month}/{today.day}/"
-                async with session.get(day_url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                async with session.get(day_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                     response.raise_for_status()
                     page = await response.text()
-        except Exception:
-            logger.exception("Failed to fetch dacha6 daily details")
+        except aiohttp.ClientResponseError as exc:
+            logger.warning("Failed to fetch dacha6 daily details: HTTP %s %s", exc.status, exc.request_info.real_url)
+            return None
+        except Exception as exc:
+            logger.warning("Failed to fetch dacha6 daily details: %s", exc)
             return None
 
         if self.settings.lunar_city not in page and self.settings.lunar_region not in page:
@@ -82,7 +108,12 @@ class Dacha6Service:
         return _parse_daily_details(page)
 
     async def month_text(self, today: date) -> str:
-        page = await self._fetch_page()
+        cache_key = f"dacha6:month:{today.year:04d}-{today.month:02d}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
+        page = await self._fetch_month_page(today.year, today.month)
         if page is None:
             return "Не получилось загрузить календарь dacha6. Попробуйте позже."
 
@@ -91,31 +122,94 @@ class Dacha6Service:
         if not summary and not days:
             return "Не получилось разобрать календарь dacha6. Сайт мог изменить разметку."
 
-        parts = [f"Садоводческий календарь dacha6: {self.settings.lunar_city}, {self.settings.lunar_region}"]
+        parts = [
+            f"Садоводческий календарь dacha6: {MONTHS_RU[today.month]} {today.year}, "
+            f"{self.settings.lunar_city}, {self.settings.lunar_region}"
+        ]
         if summary:
             parts.append(summary)
         if days:
             parts.append(days)
-        return "\n\n".join(parts)
+        text = _remove_zodiac_symbols("\n\n".join(parts))
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
+
+    async def sowing_days_text(self, target_month: date | None = None) -> str:
+        if target_month is None:
+            target_month = date.today()
+        cache_key = f"dacha6:sowing:{target_month.year:04d}-{target_month.month:02d}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+
+        page = await self._fetch_month_page(target_month.year, target_month.month)
+        if page is None:
+            return "Не получилось загрузить таблицу дней для посева. Попробуйте позже."
+
+        rows = _parse_sowing_days(page)
+        if not rows:
+            return "Не получилось разобрать таблицу дней для посева. Сайт мог изменить разметку."
+
+        lines = [
+            f"Дни для посева dacha6: {MONTHS_RU[target_month.month]} {target_month.year}, "
+            f"{self.settings.lunar_city}, {self.settings.lunar_region}"
+        ]
+        for culture, days in rows:
+            lines.append(f"{culture}: {days}")
+        text = "\n".join(lines)
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
 
     async def get_day(self, today: date) -> GardenDayInfo | None:
-        page = await self._fetch_page()
+        page = await self._fetch_month_page(today.year, today.month)
         if page is None:
             return None
         return _parse_day(page, today, self.settings.dacha6_calendar_url)
 
     async def _fetch_page(self) -> str | None:
+        return await self._fetch_month_page(date.today().year, date.today().month)
+
+    async def _fetch_month_page(self, year: int, month: int) -> str | None:
+        month_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{year}/{month}/"
+        headers = {"User-Agent": "Mozilla/5.0"}
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.settings.dacha6_calendar_url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as response:
+                    response.raise_for_status()
+                    await response.read()
+
+                async with session.get(
+                    month_url,
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
                     return await response.text()
-        except Exception:
-            logger.exception("Failed to fetch dacha6 calendar")
+        except aiohttp.ClientResponseError as exc:
+            logger.warning("Failed to fetch dacha6 calendar: HTTP %s %s", exc.status, exc.request_info.real_url)
             return None
+        except Exception as exc:
+            logger.warning("Failed to fetch dacha6 calendar: %s", exc)
+            return None
+
+    def _get_cached_text(self, cache_key: str) -> str | None:
+        if self.storage is None:
+            return None
+        cached = self.storage.get_cached_text(cache_key)
+        if cached is None:
+            return None
+        text, source = cached
+        logger.info("Using cached content %s from %s", cache_key, source)
+        return text
+
+    def _save_cached_text(self, cache_key: str, text: str, source: str) -> None:
+        if self.storage is None:
+            return
+        self.storage.save_cached_text(cache_key, text, source, datetime.now(self.settings.timezone))
 
     @staticmethod
     def _advice_for_category(category: str) -> str:
@@ -184,7 +278,7 @@ def _month_summary_text(page: str) -> str:
 
 def _month_days_text(page: str, today: date) -> str:
     rows = []
-    for day in range(1, 32):
+    for day in range(1, monthrange(today.year, today.month)[1] + 1):
         row = _day_row_text(page, date(today.year, today.month, day))
         if row is None:
             continue
@@ -273,6 +367,28 @@ def _parse_daily_details(page: str) -> DailyGardenDetails | None:
     )
 
 
+def _parse_sowing_days(page: str) -> list[tuple[str, str]]:
+    table_match = re.search(
+        r"<table class=\"tb2_1\">(.*?)</table>",
+        page,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not table_match:
+        return []
+
+    rows: list[tuple[str, str]] = []
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table_match.group(1), flags=re.DOTALL | re.IGNORECASE):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, flags=re.DOTALL | re.IGNORECASE)
+        if len(cells) != 2:
+            continue
+        culture = _clean_html(cells[0])
+        days = _clean_html(cells[1])
+        if not culture or culture == "Культура":
+            continue
+        rows.append((culture, days))
+    return rows
+
+
 def _parse_folk_signs(page: str) -> list[str]:
     match = re.search(
         r"<h2>Народные приметы.*?</h2>\s*<ol>(.*?)</ol>",
@@ -288,7 +404,16 @@ def _clean_html(value: str) -> str:
     value = re.sub(r"<br\s*/?>", " ", value, flags=re.IGNORECASE)
     value = re.sub(r"<[^>]+>", "", value)
     value = html.unescape(value)
+    value = ZODIAC_SYMBOLS_RE.sub("", value)
     return re.sub(r"\s+", " ", value).strip()
+
+
+def _remove_zodiac_symbols(value: str) -> str:
+    return ZODIAC_SYMBOLS_RE.sub("", value)
+
+
+def _with_today_title(today: date, text: str) -> str:
+    return f"Что сделать на даче: {today.day} {MONTHS_GENITIVE_RU[today.month]} {today.year}\n\n{text}"
 
 
 def _format_daily_details(
@@ -302,18 +427,15 @@ def _format_daily_details(
         info.moon_info,
     ]
     if details.good:
-        parts.append("Хорошо:\n" + _bullet_list(details.good, limit=6))
+        parts.append("Хорошо:\n" + _bullet_list(details.good))
     if details.medium:
-        parts.append("Средне:\n" + _bullet_list(details.medium, limit=4))
+        parts.append("Средне:\n" + _bullet_list(details.medium))
     if details.bad:
-        parts.append("Лучше не делать:\n" + _bullet_list(details.bad, limit=6))
+        parts.append("Лучше не делать:\n" + _bullet_list(details.bad))
     if include_folk_signs and details.folk_signs:
-        parts.append("Народные приметы:\n" + _bullet_list(details.folk_signs, limit=3))
-    return "\n\n".join(parts)
+        parts.append("Народные приметы:\n" + _bullet_list(details.folk_signs))
+    return _remove_zodiac_symbols("\n\n".join(parts))
 
 
-def _bullet_list(items: tuple[str, ...], limit: int) -> str:
-    shown = list(items[:limit])
-    if len(items) > limit:
-        shown.append(f"ещё {len(items) - limit} пункт(ов) в полном календаре")
-    return "\n".join(f"- {item}" for item in shown)
+def _bullet_list(items: tuple[str, ...]) -> str:
+    return "\n".join(f"- {item}" for item in items)

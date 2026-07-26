@@ -4,27 +4,39 @@ from datetime import date
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from .content import DEFAULT_PLANTS, MONTHS_RU
+from .content import MONTHS_RU
 
 
 BTN_DACHA = "Дача"
 BTN_DIARY = "Дневник"
 BTN_HOROSCOPE = "Гороскоп"
-BTN_SETTINGS = "Настройки"
 BTN_TEST = "Тест"
 BTN_TEST_DIGEST = "Тест утреннего дайджеста"
 BTN_TEST_DIARY_REMINDER = "Тест вечернего сообщения"
 BTN_CALENDAR = "Календарь"
-BTN_PLANTS = "Растения"
+BTN_SOWING_DAYS = "Дни для посева"
 BTN_TODAY_TIP = "Что сделать?"
 BTN_WRITE = "Записать"
 BTN_FIND = "Найти"
 BTN_PHOTO = "Фото"
 BTN_RECORDS = "Записи"
+BTN_DOWNLOAD = "Скачать"
 BTN_BACK = "Назад"
 BTN_CANCEL = "Отмена"
 BTN_SKIP_CAPTION = "Без подписи"
 CALLBACK_OPEN_DIARY = "open_diary"
+
+
+def _available_2026_months(today: date) -> list[int]:
+    start_month = 5
+    test_end_month = 6
+    if today.year < 2026:
+        end_month = test_end_month
+    elif today.year == 2026:
+        end_month = min(12, max(test_end_month, today.month + 1))
+    else:
+        end_month = 12
+    return list(range(start_month, end_month + 1))
 
 
 def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
@@ -38,7 +50,7 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
     rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE]]
     if is_admin:
-        rows.append([BTN_TEST, BTN_SETTINGS])
+        rows.append([BTN_TEST])
     return _keyboard(rows)
 
 
@@ -55,29 +67,21 @@ def diary_reminder_actions() -> InlineKeyboardMarkup:
 
 
 def dacha_menu() -> ReplyKeyboardMarkup:
-    return _keyboard([[BTN_CALENDAR, BTN_PLANTS], [BTN_TODAY_TIP], [BTN_BACK]])
+    return _keyboard([[BTN_CALENDAR, BTN_TODAY_TIP], [BTN_SOWING_DAYS], [BTN_BACK]])
 
 
-def diary_menu() -> ReplyKeyboardMarkup:
-    return _keyboard([[BTN_WRITE, BTN_FIND], [BTN_PHOTO, BTN_RECORDS], [BTN_BACK]])
-
-
-def plants_menu() -> ReplyKeyboardMarkup:
-    rows = [list(DEFAULT_PLANTS[i : i + 2]) for i in range(0, len(DEFAULT_PLANTS), 2)]
+def dacha_months_menu(action: str, today: date) -> ReplyKeyboardMarkup:
+    rows = [[f"{action}: {MONTHS_RU[month]} 2026"] for month in reversed(_available_2026_months(today))]
     rows.append([BTN_BACK])
     return _keyboard(rows)
 
 
-def records_months_menu(today: date) -> ReplyKeyboardMarkup:
-    start_month = 5
-    if today.year < 2026:
-        months: list[int] = []
-    elif today.year == 2026:
-        months = list(range(start_month, max(start_month, today.month) + 1))
-    else:
-        months = list(range(start_month, 13))
+def diary_menu() -> ReplyKeyboardMarkup:
+    return _keyboard([[BTN_WRITE, BTN_FIND], [BTN_PHOTO, BTN_RECORDS], [BTN_DOWNLOAD], [BTN_BACK]])
 
-    rows = [[f"{MONTHS_RU[month]} 2026"] for month in reversed(months)]
+
+def records_months_menu(today: date) -> ReplyKeyboardMarkup:
+    rows = [[f"{MONTHS_RU[month]} 2026"] for month in reversed(_available_2026_months(today))]
     rows.append([BTN_BACK])
     return _keyboard(rows)
 

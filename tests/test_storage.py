@@ -5,12 +5,13 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
+from helper_bot.formatting import format_entries_export
 from helper_bot.storage import Storage
 
 
 class StorageTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(dir=Path.cwd())
         root = Path(self.tmp.name)
         self.storage = Storage(root / "bot.sqlite3", root / "photos", root / "backups")
         self.storage.init()
@@ -54,6 +55,19 @@ class StorageTest(unittest.TestCase):
         self.assertTrue(self.storage.was_diary_reminder_sent(reminder_date, 111))
         self.assertEqual(self.storage.last_diary_reminder_text(111), "Как прошёл день?")
 
+    def test_all_entries_and_export(self) -> None:
+        self.storage.add_entry(111, "Починил розетку", datetime(2026, 5, 22, 15, 0))
+        self.storage.add_entry(222, "Посадил редиску", datetime(2026, 5, 21, 9, 30))
+
+        entries = self.storage.all_entries()
+        self.assertEqual([entry.text for entry in entries], ["Посадил редиску", "Починил розетку"])
+
+        export_text = format_entries_export(entries)
+        self.assertIn("Дневник дел", export_text)
+        self.assertIn("21.05.2026", export_text)
+        self.assertIn("09:30 Посадил редиску", export_text)
+        self.assertIn("15:00 Починил розетку", export_text)
+
     def test_horoscope_cache(self) -> None:
         horoscope_date = date(2026, 5, 21)
         self.assertIsNone(self.storage.get_horoscope(horoscope_date, "pisces"))
@@ -69,6 +83,21 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(
             self.storage.get_horoscope(horoscope_date, "pisces"),
             ("Рыбы: спокойный день.", "test"),
+        )
+
+    def test_content_cache(self) -> None:
+        self.assertIsNone(self.storage.get_cached_text("dacha6:garden:2026-05-27:folk=1"))
+
+        self.storage.save_cached_text(
+            "dacha6:garden:2026-05-27:folk=1",
+            "Что сделать на даче: 27 мая 2026",
+            "dacha6",
+            datetime(2026, 5, 27, 9, 0),
+        )
+
+        self.assertEqual(
+            self.storage.get_cached_text("dacha6:garden:2026-05-27:folk=1"),
+            ("Что сделать на даче: 27 мая 2026", "dacha6"),
         )
 
 

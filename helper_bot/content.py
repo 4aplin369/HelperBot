@@ -184,20 +184,16 @@ def morning_digest(
     horoscope_text: str | None = None,
     horoscope_sign: str = "pisces",
     recipient_name: str = "Павел Николаевич",
-    lunar_text: str | None = None,
     garden_today_text: str | None = None,
 ) -> str:
     horoscope_for_today = horoscope_text or horoscope()
     sign_name = SIGN_NAMES_RU.get(horoscope_sign, "Рыб")
-    lunar_for_today = lunar_text or lunar_note()
     garden_for_today = garden_today_text or garden_tip(today)
     parts = [
         f"☀️ Доброе утро, {recipient_name}!",
         f"Сегодня {today.day} {MONTHS_GENITIVE_RU[today.month]}, {WEEKDAYS_RU[today.weekday()]}.",
         "",
         f"✨ {horoscope_title(today, horoscope_sign)}\n{horoscope_for_today}",
-        "",
-        f"🌙 Лунный календарь\n{lunar_for_today}",
         "",
         f"🌱 На даче сегодня\n{garden_for_today}",
     ]

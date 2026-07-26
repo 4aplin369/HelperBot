@@ -3,19 +3,19 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from .config import Settings, load_settings
-from .content import PLANT_NOTES, diary_reminder, garden_tip, horoscope, horoscope_title, morning_digest
+from .content import diary_reminder, garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
-from .formatting import format_entries, month_title, parse_month_button
+from .formatting import format_entries, format_entries_export, format_saved_entry, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
 from .lunar_service import LunarService
 from .keyboards import (
@@ -24,12 +24,12 @@ from .keyboards import (
     BTN_CANCEL,
     BTN_DACHA,
     BTN_DIARY,
+    BTN_DOWNLOAD,
     BTN_FIND,
     BTN_HOROSCOPE,
     BTN_PHOTO,
-    BTN_PLANTS,
     BTN_RECORDS,
-    BTN_SETTINGS,
+    BTN_SOWING_DAYS,
     BTN_SKIP_CAPTION,
     BTN_TEST,
     BTN_TEST_DIGEST,
@@ -38,12 +38,12 @@ from .keyboards import (
     BTN_WRITE,
     CALLBACK_OPEN_DIARY,
     cancel_menu,
+    dacha_months_menu,
     dacha_menu,
     diary_menu,
     diary_reminder_actions,
     main_menu,
     photo_caption_menu,
-    plants_menu,
     records_months_menu,
     test_menu,
 )
@@ -59,6 +59,7 @@ class DiaryStates(StatesGroup):
     waiting_search_query = State()
     waiting_photo = State()
     waiting_photo_caption = State()
+    waiting_import_entry_text = State()
 
 
 def _is_allowed(message: Message, settings: Settings) -> bool:
@@ -71,6 +72,33 @@ def _is_admin(message: Message, settings: Settings) -> bool:
 
 def _now(settings: Settings) -> datetime:
     return datetime.now(settings.timezone)
+
+
+def _parse_prefixed_month_button(text: str, prefix: str) -> tuple[int, int] | None:
+    expected_prefix = f"{prefix}: "
+    if not text.startswith(expected_prefix):
+        return None
+    return parse_month_button(text.removeprefix(expected_prefix))
+
+
+def parse_import_entry_command(text: str, timezone) -> tuple[datetime, str] | None:
+    parts = text.strip().split(maxsplit=3)
+    if len(parts) < 3:
+        return None
+    created_at = _parse_import_datetime(parts[1], parts[2], timezone)
+    if created_at is None:
+        return None
+    entry_text = parts[3].strip() if len(parts) == 4 else ""
+    return created_at, entry_text
+
+
+def _parse_import_datetime(date_text: str, time_text: str, timezone) -> datetime | None:
+    for date_format in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(f"{date_text} {time_text}", f"{date_format} %H:%M").replace(tzinfo=timezone)
+        except ValueError:
+            continue
+    return None
 
 
 async def _deny_if_needed(message: Message, settings: Settings) -> bool:
@@ -140,9 +168,26 @@ async def calendar(
 ) -> None:
     if await _deny_if_needed(message, settings):
         return
-    today = _now(settings).date()
+    await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_CALENDAR, _now(settings).date()))
+
+
+@router.message(F.text.regexp(r"^Календарь: (Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
+async def calendar_month(
+    message: Message,
+    settings: Settings,
+    lunar_service: LunarService,
+    dacha6_service: Dacha6Service,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    assert message.text is not None
+    parsed = _parse_prefixed_month_button(message.text, BTN_CALENDAR)
+    if parsed is None:
+        await message.answer("Не понял месяц.", reply_markup=dacha_menu())
+        return
+    year, month = parsed
     await message.answer(
-        await dacha6_service.month_text(today),
+        await dacha6_service.month_text(date(year, month, 1)),
         reply_markup=dacha_menu(),
     )
 
@@ -157,19 +202,27 @@ async def today_tip(message: Message, settings: Settings, dacha6_service: Dacha6
     )
 
 
-@router.message(F.text == BTN_PLANTS)
-async def plants(message: Message, settings: Settings) -> None:
+@router.message(F.text == BTN_SOWING_DAYS)
+async def sowing_days(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
-    await message.answer("Выберите растение.", reply_markup=plants_menu())
+    await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_SOWING_DAYS, _now(settings).date()))
 
 
-@router.message(F.text.in_(set(PLANT_NOTES)))
-async def plant_note(message: Message, settings: Settings) -> None:
+@router.message(F.text.regexp(r"^Дни для посева: (Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
+async def sowing_days_month(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
     assert message.text is not None
-    await message.answer(PLANT_NOTES[message.text], reply_markup=plants_menu())
+    parsed = _parse_prefixed_month_button(message.text, BTN_SOWING_DAYS)
+    if parsed is None:
+        await message.answer("Не понял месяц.", reply_markup=dacha_menu())
+        return
+    year, month = parsed
+    await message.answer(
+        await dacha6_service.sowing_days_text(date(year, month, 1)),
+        reply_markup=dacha_menu(),
+    )
 
 
 @router.message(F.text == BTN_HOROSCOPE)
@@ -185,24 +238,6 @@ async def horoscope_handler(
     await message.answer(
         f"✨ {horoscope_title(today, settings.horoscope_sign)}\n{result.text}",
         reply_markup=main_menu(_is_admin(message, settings)),
-    )
-
-
-@router.message(F.text == BTN_SETTINGS)
-async def settings_handler(message: Message, settings: Settings) -> None:
-    if await _deny_if_needed(message, settings):
-        return
-    if not _is_admin(message, settings):
-        await message.answer("Настройки доступны только дочери.")
-        return
-    await message.answer(
-        "Настройки первой версии меняются в файле .env:\n"
-        f"- время дайджеста: {settings.digest_hour:02d}:{settings.digest_minute:02d}\n"
-        "- вечернее напоминание о дневнике: "
-        f"{settings.diary_reminder_hour:02d}:{settings.diary_reminder_minute:02d}\n"
-        f"- часовой пояс: {settings.timezone.key}\n"
-        "- доступ: ALLOWED_USER_IDS",
-        reply_markup=main_menu(True),
     )
 
 
@@ -237,7 +272,6 @@ async def test_digest_handler(
             horoscope_result.text,
             settings.horoscope_sign,
             settings.recipient_name,
-            lunar_service.daily_text(_now(settings).date()),
             await dacha6_service.garden_text(_now(settings).date()),
         ),
         reply_markup=test_menu(),
@@ -272,6 +306,64 @@ async def open_diary_from_reminder(
         )
 
 
+@router.message(Command("import_entry"))
+async def import_entry_command(message: Message, state: FSMContext, storage: Storage, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Импорт старых записей доступен только дочери.")
+        return
+    parsed = parse_import_entry_command(message.text or "", settings.timezone)
+    if parsed is None:
+        await message.answer(
+            "Формат:\n/import_entry 2026-06-03 14:30 текст записи\n"
+            "или:\n/import_entry 03.06.2026 14:30 текст записи\n\n"
+            "Можно без текста: /import_entry 03.06.2026 14:30, а запись отправить следующим сообщением.",
+            reply_markup=diary_menu(),
+        )
+        return
+
+    created_at, entry_text = parsed
+    if entry_text:
+        assert message.from_user is not None
+        entry = storage.add_entry(message.from_user.id, entry_text, created_at)
+        await state.clear()
+        await message.answer("Импортировал старую запись.\n\n" + format_saved_entry(entry), reply_markup=diary_menu())
+        return
+
+    await state.set_state(DiaryStates.waiting_import_entry_text)
+    await state.update_data(import_created_at=created_at.isoformat())
+    await message.answer(
+        f"Дата для старой записи: {created_at:%d.%m.%Y %H:%M}\nТеперь отправьте текст записи.",
+        reply_markup=cancel_menu(),
+    )
+
+
+@router.message(DiaryStates.waiting_import_entry_text, F.text)
+async def save_imported_entry_text(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await state.clear()
+        await message.answer("Импорт старых записей доступен только дочери.", reply_markup=diary_menu())
+        return
+    text = message.text or ""
+    if text == BTN_CANCEL:
+        await cancel(message, state, settings)
+        return
+    data = await state.get_data()
+    created_at = datetime.fromisoformat(str(data["import_created_at"]))
+    assert message.from_user is not None
+    entry = storage.add_entry(message.from_user.id, text, created_at)
+    await state.clear()
+    await message.answer("Импортировал старую запись.\n\n" + format_saved_entry(entry), reply_markup=diary_menu())
+
+
 @router.message(F.text == BTN_WRITE)
 async def write_entry(message: Message, state: FSMContext, settings: Settings) -> None:
     if await _deny_if_needed(message, settings):
@@ -292,7 +384,7 @@ async def save_entry_text(message: Message, state: FSMContext, storage: Storage,
     entry = storage.add_entry(message.from_user.id, text, _now(settings))
     await state.clear()
     await message.answer(
-        f"Записал:\n{entry.created_at:%d.%m.%Y %H:%M}\n{entry.text}",
+        format_saved_entry(entry),
         reply_markup=diary_menu(),
     )
 
@@ -326,6 +418,21 @@ async def records(message: Message, settings: Settings) -> None:
     if await _deny_if_needed(message, settings):
         return
     await message.answer("Выберите месяц.", reply_markup=records_months_menu(_now(settings).date()))
+
+
+@router.message(F.text == BTN_DOWNLOAD)
+async def download_entries(message: Message, storage: Storage, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    exports_dir = settings.data_dir / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    export_path = exports_dir / f"diary_{_now(settings):%Y%m%d_%H%M%S}.txt"
+    export_path.write_text(format_entries_export(storage.all_entries()), encoding="utf-8")
+    await message.answer_document(
+        FSInputFile(export_path, filename="diary.txt"),
+        caption="Выгрузка дневника.",
+        reply_markup=diary_menu(),
+    )
 
 
 @router.message(F.text.regexp(r"^(Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
@@ -444,9 +551,15 @@ async def run_bot() -> None:
     settings = load_settings()
     storage = Storage(settings.database_path, settings.photos_dir, settings.backups_dir)
     storage.init()
+    logger.info("Data directory: %s", settings.data_dir)
+    logger.info(
+        "Database path: %s; diary entries: %s",
+        settings.database_path,
+        len(storage.all_entries()),
+    )
     horoscope_service = HoroscopeService(storage, settings)
     lunar_service = LunarService(settings)
-    dacha6_service = Dacha6Service(settings, lunar_service)
+    dacha6_service = Dacha6Service(settings, lunar_service, storage)
 
     bot = Bot(settings.bot_token)
     dp = Dispatcher()

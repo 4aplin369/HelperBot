@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
-from helper_bot.dacha6_service import _parse_day
+from helper_bot.dacha6_service import _month_days_text, _parse_day, _with_today_title
 
 
 class Dacha6ParserTest(unittest.TestCase):
@@ -31,6 +31,29 @@ class Dacha6ParserTest(unittest.TestCase):
         self.assertEqual(info.category, "Нежелательные дни")
         self.assertIn("5, 6 лунный день", info.moon_info)
         self.assertIn("Растущая луна", info.moon_info)
+
+    def test_month_days_text_handles_june_without_day_31(self) -> None:
+        html = """
+        <ul>
+          <li>Благоприятные дни – 1 июня</li>
+        </ul>
+        <table>
+          <tr><td>1 июня 2026<br>понедельник</td>
+          <td></td><td>Луна в знаке:<br><span>Стрелец ♐</span></td>
+          <td><span>16, 17 лунный день</span><br>Убывающая луна</td></tr>
+        </table>
+        """
+
+        text = _month_days_text(html, date(2026, 6, 1))
+
+        self.assertIn("01: благоприятные дни", text)
+        self.assertNotIn("31:", text)
+
+    def test_today_title_has_full_date(self) -> None:
+        text = _with_today_title(date(2026, 5, 27), "Хорошо:\n- Полив")
+
+        self.assertTrue(text.startswith("Что сделать на даче: 27 мая 2026"))
+        self.assertIn("Хорошо:\n- Полив", text)
 
 
 if __name__ == "__main__":

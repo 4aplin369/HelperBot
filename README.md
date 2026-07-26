@@ -63,15 +63,15 @@ Copy-Item .env.example .env
 
 - `BOT_TOKEN` — токен Telegram-бота от BotFather.
 - `ALLOWED_USER_IDS` — Telegram ID папы и дочери через запятую. Оба получают утренний дайджест и вечернее напоминание.
-- `ADMIN_USER_IDS` — Telegram ID дочери, которой доступны настройки и ручные тесты.
+- `ADMIN_USER_IDS` — Telegram ID дочери, которой доступны ручные тесты.
 - `TIMEZONE` — часовой пояс расписания; значение по умолчанию `Asia/Barnaul`.
 - `DIGEST_TIME` — время утреннего дайджеста в формате `HH:MM`.
 - `DIARY_REMINDER_TIME` — время вечернего напоминания в формате `HH:MM`; значение по умолчанию `18:00`.
-- `DATA_DIR` — папка для базы, фото и резервных копий.
-- `HOROSCOPE_PROVIDER` — источник гороскопа: `astrology_api` или `freehoroscopeapi`.
+- `DATA_DIR` — папка для базы, фото и резервных копий. На Railway должна совпадать с Mount Path volume, например `/app/data`.
+- `HOROSCOPE_PROVIDER` — источник гороскопа: `mail_ru`, `astrology_api` или `freehoroscopeapi`.
 - `HOROSCOPE_SIGN` — знак зодиака; сейчас `pisces`.
 - `HOROSCOPE_LANGUAGE` — язык гороскопа; сейчас `ru`.
-- `HOROSCOPE_API_URL` — endpoint ежедневного гороскопа.
+- `HOROSCOPE_API_URL` — endpoint ежедневного гороскопа. Для `mail_ru`: `https://horo.mail.ru/prediction/{sign}/today/`.
 - `HOROSCOPE_API_KEY` — ключ Astrology API. Хранить только в `.env`.
 - `RECIPIENT_NAME` — имя в приветствии утреннего дайджеста.
 - `LUNAR_REGION`, `LUNAR_CITY`, `LUNAR_LATITUDE`, `LUNAR_LONGITUDE` — регион и координаты лунного календаря.
@@ -85,6 +85,8 @@ Copy-Item .env.example .env
 
 ## Данные и безопасность
 
-Данные дневника хранятся в SQLite-базе внутри `DATA_DIR`. Фото сохраняются в Telegram как `file_id` и скачиваются в подкаталог `photos/`, если Telegram отдаёт файл.
+Данные дневника хранятся в SQLite-базе `helper_bot.sqlite3` внутри `DATA_DIR`. Фото сохраняются в Telegram как `file_id` и скачиваются в `DATA_DIR/photos/`, если Telegram отдаёт файл.
 
 Локальные `.env`, базы данных, фотографии, резервные копии и логи не должны попадать в Git. План следующих функций, включая weekly review и monthly review, находится в [`ROADMAP.md`](ROADMAP.md).
+
+Для Railway нужен persistent volume: Mount Path volume и переменная `DATA_DIR` должны указывать на один и тот же путь, например `/app/data`. При старте бот пишет в логи `Data directory`, `Database path` и количество записей в базе.

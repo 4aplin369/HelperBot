@@ -87,7 +87,13 @@ def load_settings() -> Settings:
         os.getenv("DIARY_REMINDER_TIME", "18:00"),
         "DIARY_REMINDER_TIME",
     )
-    data_dir = Path(os.getenv("DATA_DIR", "data")).resolve()
+    data_dir_value = os.getenv("DATA_DIR", "").strip()
+    railway_volume_dir = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    if railway_volume_dir and (not data_dir_value or data_dir_value == "data"):
+        data_dir_value = railway_volume_dir
+    if not data_dir_value:
+        data_dir_value = "data"
+    data_dir = Path(data_dir_value).resolve()
 
     return Settings(
         bot_token=bot_token,
@@ -99,11 +105,11 @@ def load_settings() -> Settings:
         diary_reminder_hour=diary_reminder_hour,
         diary_reminder_minute=diary_reminder_minute,
         data_dir=data_dir,
-        horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "astrology_api").strip().lower(),
+        horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "mail_ru").strip().lower(),
         horoscope_sign=os.getenv("HOROSCOPE_SIGN", "pisces").strip().lower(),
         horoscope_api_url=os.getenv(
             "HOROSCOPE_API_URL",
-            "https://api.astrology-api.io/api/v3/horoscope/sign/daily/text",
+            "https://horo.mail.ru/prediction/{sign}/today/",
         ).strip(),
         horoscope_api_key=os.getenv("HOROSCOPE_API_KEY", "").strip(),
         horoscope_language=os.getenv("HOROSCOPE_LANGUAGE", "ru").strip().lower(),
