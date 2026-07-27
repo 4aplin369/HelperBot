@@ -13,6 +13,7 @@ BTN_HOROSCOPE = "Гороскоп"
 BTN_TEST = "Тест"
 BTN_TEST_DIGEST = "Тест утреннего дайджеста"
 BTN_TEST_DIARY_REMINDER = "Тест вечернего сообщения"
+BTN_TEST_WEEKLY_REVIEW = "Тест итогов недели"
 BTN_CALENDAR = "Календарь"
 BTN_SOWING_DAYS = "Дни для посева"
 BTN_TODAY_TIP = "Что сделать?"
@@ -55,7 +56,9 @@ def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
 
 
 def test_menu() -> ReplyKeyboardMarkup:
-    return _keyboard([[BTN_TEST_DIGEST], [BTN_TEST_DIARY_REMINDER], [BTN_BACK]])
+    return _keyboard(
+        [[BTN_TEST_DIGEST], [BTN_TEST_DIARY_REMINDER], [BTN_TEST_WEEKLY_REVIEW], [BTN_BACK]]
+    )
 
 
 def diary_reminder_actions() -> InlineKeyboardMarkup:

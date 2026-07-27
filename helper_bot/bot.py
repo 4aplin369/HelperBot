@@ -34,6 +34,7 @@ from .keyboards import (
     BTN_TEST,
     BTN_TEST_DIGEST,
     BTN_TEST_DIARY_REMINDER,
+    BTN_TEST_WEEKLY_REVIEW,
     BTN_TODAY_TIP,
     BTN_WRITE,
     CALLBACK_OPEN_DIARY,
@@ -47,8 +48,14 @@ from .keyboards import (
     records_months_menu,
     test_menu,
 )
-from .scheduler import backup_loop, diary_reminder_loop, digest_loop
+from .scheduler import backup_loop, diary_reminder_loop, digest_loop, weekly_review_loop
 from .storage import Storage
+from .weekly_review_service import (
+    WeeklyReviewError,
+    WeeklyReviewService,
+    current_week_period,
+    empty_weekly_review_text,
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -286,6 +293,47 @@ async def test_diary_reminder_handler(message: Message, settings: Settings) -> N
         await message.answer("Тесты доступны только дочери.")
         return
     await message.answer(diary_reminder(), reply_markup=diary_reminder_actions())
+
+
+@router.message(F.text == BTN_TEST_WEEKLY_REVIEW)
+async def test_weekly_review_handler(
+    message: Message,
+    settings: Settings,
+    storage: Storage,
+    weekly_review_service: WeeklyReviewService,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Тесты доступны только дочери.")
+        return
+
+    period_start, period_end = current_week_period(_now(settings))
+    entries = storage.entries_between(period_start, period_end)
+    if not entries:
+        await message.answer(
+            empty_weekly_review_text(period_start, period_end),
+            reply_markup=test_menu(),
+        )
+        return
+    if not settings.amvera_api_token:
+        await message.answer(
+            "Weekly review пока не подключён: добавьте секрет AMVERA_API_TOKEN в настройках Amvera.",
+            reply_markup=test_menu(),
+        )
+        return
+
+    await message.answer("Готовлю тестовые итоги недели…")
+    try:
+        text = await weekly_review_service.generate(entries, period_start, period_end)
+    except WeeklyReviewError:
+        logger.exception("Failed to generate test weekly review")
+        await message.answer(
+            "Не получилось получить ответ от Amvera LLM. Проверьте токен, модель и логи.",
+            reply_markup=test_menu(),
+        )
+        return
+    await message.answer(text, reply_markup=test_menu())
 
 
 @router.callback_query(F.data == CALLBACK_OPEN_DIARY)
@@ -560,6 +608,17 @@ async def run_bot() -> None:
     horoscope_service = HoroscopeService(storage, settings)
     lunar_service = LunarService(settings)
     dacha6_service = Dacha6Service(settings, lunar_service, storage)
+    weekly_review_service = WeeklyReviewService(settings)
+    logger.info(
+        "Weekly review: %s; weekday=%s; time=%02d:%02d; model=%s",
+        "enabled" if settings.weekly_review_enabled else "disabled",
+        settings.weekly_review_weekday,
+        settings.weekly_review_hour,
+        settings.weekly_review_minute,
+        settings.amvera_llm_model,
+    )
+    if settings.weekly_review_enabled and not settings.amvera_api_token:
+        logger.warning("Weekly review is enabled, but AMVERA_API_TOKEN is empty")
 
     bot = Bot(settings.bot_token)
     dp = Dispatcher()
@@ -569,9 +628,11 @@ async def run_bot() -> None:
     dp["horoscope_service"] = horoscope_service
     dp["lunar_service"] = lunar_service
     dp["dacha6_service"] = dacha6_service
+    dp["weekly_review_service"] = weekly_review_service
 
     asyncio.create_task(digest_loop(bot, storage, settings, horoscope_service, lunar_service, dacha6_service))
     asyncio.create_task(diary_reminder_loop(bot, storage, settings))
+    asyncio.create_task(weekly_review_loop(bot, storage, settings, weekly_review_service))
     asyncio.create_task(backup_loop(storage, settings))
 
     logger.info("HelperBot started")

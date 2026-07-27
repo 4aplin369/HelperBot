@@ -9,6 +9,7 @@ from helper_bot.keyboards import (
     BTN_TEST,
     BTN_TEST_DIARY_REMINDER,
     BTN_TEST_DIGEST,
+    BTN_TEST_WEEKLY_REVIEW,
     CALLBACK_OPEN_DIARY,
     dacha_months_menu,
     diary_reminder_actions,
@@ -29,11 +30,12 @@ class AdminTestMenuTest(unittest.TestCase):
         self.assertIn(BTN_TEST, texts)
         self.assertNotIn(BTN_TEST_DIGEST, texts)
 
-    def test_test_menu_has_both_actions(self) -> None:
+    def test_test_menu_has_all_actions(self) -> None:
         texts = _button_texts(test_menu())
 
         self.assertIn(BTN_TEST_DIGEST, texts)
         self.assertIn(BTN_TEST_DIARY_REMINDER, texts)
+        self.assertIn(BTN_TEST_WEEKLY_REVIEW, texts)
 
     def test_diary_reminder_has_open_diary_inline_button(self) -> None:
         markup = diary_reminder_actions()

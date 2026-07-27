@@ -64,6 +64,20 @@ class Storage:
                     PRIMARY KEY (reminder_date, user_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS weekly_reviews (
+                    week_start TEXT PRIMARY KEY,
+                    period_end TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    generated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sent_weekly_reviews (
+                    week_start TEXT NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    sent_at TEXT NOT NULL,
+                    PRIMARY KEY (week_start, user_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS daily_horoscopes (
                     horoscope_date TEXT NOT NULL,
                     sign TEXT NOT NULL,
@@ -136,6 +150,20 @@ class Storage:
             ).fetchall()
         return [self._entry_from_row(row) for row in rows]
 
+    def entries_between(self, start: datetime, end: datetime, limit: int = 200) -> list[DiaryEntry]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, text, photo_file_id, photo_local_path, created_at
+                FROM diary_entries
+                WHERE created_at >= ? AND created_at <= ?
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                """,
+                (start.isoformat(), end.isoformat(), limit),
+            ).fetchall()
+        return [self._entry_from_row(row) for row in rows]
+
     def all_entries(self) -> list[DiaryEntry]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -201,6 +229,58 @@ class Storage:
                 VALUES (?, ?, ?, ?)
                 """,
                 (reminder_date.isoformat(), user_id, text, sent_at.isoformat()),
+            )
+
+    def get_weekly_review(self, week_start: date) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT text FROM weekly_reviews WHERE week_start = ?",
+                (week_start.isoformat(),),
+            ).fetchone()
+        return None if row is None else str(row["text"])
+
+    def save_weekly_review(
+        self,
+        week_start: date,
+        period_end: datetime,
+        text: str,
+        generated_at: datetime,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO weekly_reviews(week_start, period_end, text, generated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(week_start)
+                DO UPDATE SET
+                    period_end = excluded.period_end,
+                    text = excluded.text,
+                    generated_at = excluded.generated_at
+                """,
+                (
+                    week_start.isoformat(),
+                    period_end.isoformat(),
+                    text.strip(),
+                    generated_at.isoformat(),
+                ),
+            )
+
+    def was_weekly_review_sent(self, week_start: date, user_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM sent_weekly_reviews WHERE week_start = ? AND user_id = ?",
+                (week_start.isoformat(), user_id),
+            ).fetchone()
+        return row is not None
+
+    def mark_weekly_review_sent(self, week_start: date, user_id: int, sent_at: datetime) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO sent_weekly_reviews(week_start, user_id, sent_at)
+                VALUES (?, ?, ?)
+                """,
+                (week_start.isoformat(), user_id, sent_at.isoformat()),
             )
 
     def backup(self, now: datetime) -> Path:

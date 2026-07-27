@@ -68,6 +68,31 @@ class StorageTest(unittest.TestCase):
         self.assertIn("09:30 Посадил редиску", export_text)
         self.assertIn("15:00 Починил розетку", export_text)
 
+    def test_entries_between(self) -> None:
+        self.storage.add_entry(111, "До недели", datetime(2026, 7, 19, 23, 59))
+        self.storage.add_entry(111, "На этой неделе", datetime(2026, 7, 22, 10, 0))
+        self.storage.add_entry(111, "После периода", datetime(2026, 7, 27, 0, 1))
+
+        entries = self.storage.entries_between(
+            datetime(2026, 7, 20, 0, 0),
+            datetime(2026, 7, 26, 19, 0),
+        )
+
+        self.assertEqual([entry.text for entry in entries], ["На этой неделе"])
+
+    def test_weekly_review_cache_and_marker(self) -> None:
+        week_start = date(2026, 7, 20)
+        sent_at = datetime(2026, 7, 26, 19, 0)
+
+        self.assertIsNone(self.storage.get_weekly_review(week_start))
+        self.assertFalse(self.storage.was_weekly_review_sent(week_start, 111))
+
+        self.storage.save_weekly_review(week_start, sent_at, "Итоги недели", sent_at)
+        self.storage.mark_weekly_review_sent(week_start, 111, sent_at)
+
+        self.assertEqual(self.storage.get_weekly_review(week_start), "Итоги недели")
+        self.assertTrue(self.storage.was_weekly_review_sent(week_start, 111))
+
     def test_horoscope_cache(self) -> None:
         horoscope_date = date(2026, 5, 21)
         self.assertIsNone(self.storage.get_horoscope(horoscope_date, "pisces"))

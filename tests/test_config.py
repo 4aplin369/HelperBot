@@ -23,6 +23,13 @@ class DiaryReminderSettingsTest(unittest.TestCase):
             (settings.diary_reminder_hour, settings.diary_reminder_minute),
             (18, 0),
         )
+        self.assertFalse(settings.weekly_review_enabled)
+        self.assertEqual(settings.weekly_review_weekday, 6)
+        self.assertEqual(
+            (settings.weekly_review_hour, settings.weekly_review_minute),
+            (19, 0),
+        )
+        self.assertEqual(settings.amvera_llm_model, "llama70b")
 
     def test_barnaul_timezone_is_the_default(self) -> None:
         env = {
