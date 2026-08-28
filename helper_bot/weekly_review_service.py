@@ -7,14 +7,16 @@ from datetime import datetime, timedelta
 import aiohttp
 
 from .config import Settings
-from .storage import DiaryEntry
+from .storage import DiaryEntry, Storage
 
 logger = logging.getLogger(__name__)
 
 MAX_SOURCE_CHARS = 12_000
 MAX_TELEGRAM_CHARS = 3_900
 
-SYSTEM_PROMPT = """Ты составляешь доброжелательный еженедельный обзор семейного дневника дел.
+WEEKLY_REVIEW_PROMPT_CACHE_KEY = "weekly_review:system_prompt"
+
+DEFAULT_WEEKLY_REVIEW_PROMPT = """Ты составляешь доброжелательный еженедельный обзор семейного дневника дел.
 
 Правила:
 - пиши по-русски, тепло, спокойно и уважительно;
@@ -33,6 +35,32 @@ SYSTEM_PROMPT = """Ты составляешь доброжелательный 
 🌱 Небольшой фокус на следующую неделю — только осторожный вывод из незавершённых дел
 
 Если данных для раздела нет, пропусти раздел. Не используй шаблонные похвалы."""
+
+PROMPT_EDITOR_SYSTEM_PROMPT = """Ты помогаешь переписать системный промт для другого AI, который еженедельно \
+готовит тёплый обзор семейного дневника дел на русском языке по фактам из записей.
+
+Тебе дают текущий промт и пожелание, что в нём изменить. Перепиши промт целиком с учётом пожелания.
+
+Правила:
+- сохрани общее назначение промта — инструкция для AI, который составляет еженедельный обзор дневника;
+- верни только новый текст промта целиком, без пояснений, кавычек и комментариев к своей работе;
+- пиши по-русски."""
+
+
+def get_custom_prompt(storage: Storage) -> str | None:
+    cached = storage.get_cached_text(WEEKLY_REVIEW_PROMPT_CACHE_KEY)
+    if cached is None:
+        return None
+    text, _source = cached
+    return text
+
+
+def save_custom_prompt(storage: Storage, text: str, saved_at: datetime) -> None:
+    storage.save_cached_text(WEEKLY_REVIEW_PROMPT_CACHE_KEY, text.strip(), "admin_edit", saved_at)
+
+
+def current_prompt_text(storage: Storage) -> str:
+    return get_custom_prompt(storage) or DEFAULT_WEEKLY_REVIEW_PROMPT
 
 
 class WeeklyReviewError(RuntimeError):
@@ -90,6 +118,7 @@ class WeeklyReviewService:
         entries: list[DiaryEntry],
         start: datetime,
         end: datetime,
+        system_prompt: str | None = None,
     ) -> str:
         if not self.settings.amvera_api_token:
             raise WeeklyReviewError("AMVERA_API_TOKEN is not configured")
@@ -99,7 +128,7 @@ class WeeklyReviewService:
         payload = {
             "model": self.settings.amvera_llm_model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt or DEFAULT_WEEKLY_REVIEW_PROMPT},
                 {"role": "user", "content": build_weekly_review_prompt(entries, start, end)},
             ],
             "temperature": 0.35,
@@ -110,6 +139,28 @@ class WeeklyReviewService:
         if not text:
             raise WeeklyReviewError("Amvera LLM returned an empty response")
         return self._fit_for_telegram(text)
+
+    async def revise_prompt(self, current_prompt: str, instruction: str) -> str:
+        if not self.settings.amvera_api_token:
+            raise WeeklyReviewError("AMVERA_API_TOKEN is not configured")
+
+        payload = {
+            "model": self.settings.amvera_llm_model,
+            "messages": [
+                {"role": "system", "content": PROMPT_EDITOR_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"Текущий промт:\n\n{current_prompt}\n\nПожелание: {instruction}",
+                },
+            ],
+            "temperature": 0.4,
+            "max_tokens": 700,
+        }
+        response_payload = await self._request(payload)
+        text = self._extract_text(response_payload)
+        if not text:
+            raise WeeklyReviewError("Amvera LLM returned an empty response")
+        return text.strip()
 
     async def _request(self, payload: dict[str, object]) -> object:
         url = f"{self.settings.amvera_llm_base_url.rstrip('/')}/chat/completions"

@@ -12,6 +12,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
+from .ai_chat_service import AIChatError, AIChatService
 from .config import Settings, load_settings
 from .content import diary_reminder, garden_tip, horoscope, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
@@ -19,6 +20,9 @@ from .formatting import format_entries, format_entries_export, format_saved_entr
 from .horoscope_service import HoroscopeService
 from .lunar_service import LunarService
 from .keyboards import (
+    BTN_AI_CHAT,
+    BTN_AI_EXIT,
+    BTN_AI_NEW_CHAT,
     BTN_BACK,
     BTN_CALENDAR,
     BTN_CANCEL,
@@ -31,13 +35,17 @@ from .keyboards import (
     BTN_RECORDS,
     BTN_SOWING_DAYS,
     BTN_SKIP_CAPTION,
+    BTN_PROMPT_RETRY,
+    BTN_PROMPT_SAVE,
     BTN_TEST,
     BTN_TEST_DIGEST,
     BTN_TEST_DIARY_REMINDER,
+    BTN_TEST_PROMPT,
     BTN_TEST_WEEKLY_REVIEW,
     BTN_TODAY_TIP,
     BTN_WRITE,
     CALLBACK_OPEN_DIARY,
+    ai_chat_menu,
     cancel_menu,
     dacha_months_menu,
     dacha_menu,
@@ -47,14 +55,17 @@ from .keyboards import (
     photo_caption_menu,
     records_months_menu,
     test_menu,
+    weekly_prompt_review_menu,
 )
 from .scheduler import backup_loop, diary_reminder_loop, digest_loop, weekly_review_loop
 from .storage import Storage
 from .weekly_review_service import (
     WeeklyReviewError,
     WeeklyReviewService,
+    current_prompt_text,
     current_week_period,
     empty_weekly_review_text,
+    save_custom_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +78,9 @@ class DiaryStates(StatesGroup):
     waiting_photo = State()
     waiting_photo_caption = State()
     waiting_import_entry_text = State()
+    waiting_weekly_prompt_instruction = State()
+    waiting_weekly_prompt_confirmation = State()
+    chatting_with_ai = State()
 
 
 def _is_allowed(message: Message, settings: Settings) -> bool:
@@ -248,6 +262,84 @@ async def horoscope_handler(
     )
 
 
+@router.message(F.text == BTN_AI_CHAT)
+async def ai_chat_start(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not settings.amvera_api_token:
+        await message.answer(
+            "ИИ пока не подключён. Проверьте секрет AMVERA_API_TOKEN в Amvera.",
+            reply_markup=main_menu(_is_admin(message, settings)),
+        )
+        return
+    assert message.from_user is not None
+    storage.get_or_start_ai_conversation(message.from_user.id, _now(settings))
+    await state.set_state(DiaryStates.chatting_with_ai)
+    await message.answer(
+        "🤖 Задайте вопрос. Я помню предыдущие сообщения этого разговора.",
+        reply_markup=ai_chat_menu(),
+    )
+
+
+@router.message(DiaryStates.chatting_with_ai, F.text == BTN_AI_NEW_CHAT)
+async def ai_chat_new(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    assert message.from_user is not None
+    storage.start_ai_conversation(message.from_user.id, _now(settings))
+    await state.set_state(DiaryStates.chatting_with_ai)
+    await message.answer("Начали новый разговор. О чём хотите спросить?", reply_markup=ai_chat_menu())
+
+
+@router.message(DiaryStates.chatting_with_ai, F.text == BTN_AI_EXIT)
+async def ai_chat_exit(message: Message, state: FSMContext, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    await state.clear()
+    await _show_main(message, settings, "Вышли из разговора с ИИ. История сохранена.")
+
+
+@router.message(DiaryStates.chatting_with_ai, F.text)
+async def ai_chat_question(
+    message: Message,
+    storage: Storage,
+    settings: Settings,
+    ai_chat_service: AIChatService,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    assert message.from_user is not None
+    assert message.text is not None
+    user_id = message.from_user.id
+    conversation_id = storage.get_or_start_ai_conversation(user_id, _now(settings))
+    history = storage.ai_chat_messages(conversation_id)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    try:
+        answer = await ai_chat_service.answer(history, message.text)
+    except AIChatError:
+        logger.exception("Failed to answer AI chat question for user %s", user_id)
+        await message.answer(
+            "Не получилось получить ответ от ИИ. Попробуйте ещё раз немного позже.",
+            reply_markup=ai_chat_menu(),
+        )
+        return
+
+    now = _now(settings)
+    storage.add_ai_chat_message(conversation_id, user_id, "user", message.text, now)
+    storage.add_ai_chat_message(conversation_id, user_id, "assistant", answer, now)
+    await message.answer(answer, reply_markup=ai_chat_menu())
+
+
 @router.message(F.text == BTN_TEST)
 async def test_menu_handler(message: Message, state: FSMContext, settings: Settings) -> None:
     if await _deny_if_needed(message, settings):
@@ -325,7 +417,9 @@ async def test_weekly_review_handler(
 
     await message.answer("Готовлю тестовые итоги недели…")
     try:
-        text = await weekly_review_service.generate(entries, period_start, period_end)
+        text = await weekly_review_service.generate(
+            entries, period_start, period_end, system_prompt=current_prompt_text(storage)
+        )
     except WeeklyReviewError:
         logger.exception("Failed to generate test weekly review")
         await message.answer(
@@ -334,6 +428,119 @@ async def test_weekly_review_handler(
         )
         return
     await message.answer(text, reply_markup=test_menu())
+
+
+@router.message(F.text == BTN_TEST_PROMPT)
+async def weekly_prompt_start(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await message.answer("Тесты доступны только дочери.")
+        return
+    current = current_prompt_text(storage)
+    await state.set_state(DiaryStates.waiting_weekly_prompt_instruction)
+    await state.update_data(weekly_prompt_base=current)
+    await message.answer(
+        "Текущий промт для итогов недели:\n\n" + current
+        + "\n\nНапишите, что изменить (например: «сделай короче» или «добавь больше тепла»).",
+        reply_markup=cancel_menu(),
+    )
+
+
+@router.message(DiaryStates.waiting_weekly_prompt_instruction, F.text)
+async def weekly_prompt_revise(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+    weekly_review_service: WeeklyReviewService,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await state.clear()
+        await message.answer("Тесты доступны только дочери.", reply_markup=test_menu())
+        return
+    if message.text == BTN_CANCEL:
+        await state.clear()
+        await message.answer("Отменено.", reply_markup=test_menu())
+        return
+
+    data = await state.get_data()
+    base_prompt = str(data.get("weekly_prompt_base") or current_prompt_text(storage))
+    await message.answer("Переписываю промт…")
+    try:
+        draft = await weekly_review_service.revise_prompt(base_prompt, message.text or "")
+    except WeeklyReviewError:
+        logger.exception("Failed to revise weekly review prompt")
+        await state.clear()
+        await message.answer(
+            "Не получилось получить ответ от Amvera LLM. Проверьте токен, модель и логи.",
+            reply_markup=test_menu(),
+        )
+        return
+
+    await state.set_state(DiaryStates.waiting_weekly_prompt_confirmation)
+    await state.update_data(weekly_prompt_draft=draft)
+    await message.answer(
+        "Черновик нового промта:\n\n" + draft,
+        reply_markup=weekly_prompt_review_menu(),
+    )
+
+
+@router.message(DiaryStates.waiting_weekly_prompt_confirmation, F.text == BTN_PROMPT_SAVE)
+async def weekly_prompt_save(
+    message: Message,
+    state: FSMContext,
+    storage: Storage,
+    settings: Settings,
+) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await state.clear()
+        await message.answer("Тесты доступны только дочери.", reply_markup=test_menu())
+        return
+    data = await state.get_data()
+    draft = str(data.get("weekly_prompt_draft") or "")
+    if not draft:
+        await state.clear()
+        await message.answer("Не нашёл черновик, начните заново.", reply_markup=test_menu())
+        return
+    save_custom_prompt(storage, draft, _now(settings))
+    await state.clear()
+    await message.answer(
+        "Сохранено. Новый промт будет использоваться и в тестовых, и в настоящих воскресных итогах недели.",
+        reply_markup=test_menu(),
+    )
+
+
+@router.message(DiaryStates.waiting_weekly_prompt_confirmation, F.text == BTN_PROMPT_RETRY)
+async def weekly_prompt_retry(message: Message, state: FSMContext, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    if not _is_admin(message, settings):
+        await state.clear()
+        await message.answer("Тесты доступны только дочери.", reply_markup=test_menu())
+        return
+    data = await state.get_data()
+    draft = str(data.get("weekly_prompt_draft") or "")
+    await state.set_state(DiaryStates.waiting_weekly_prompt_instruction)
+    await state.update_data(weekly_prompt_base=draft)
+    await message.answer("Что ещё поправить в промте?", reply_markup=cancel_menu())
+
+
+@router.message(DiaryStates.waiting_weekly_prompt_confirmation, F.text == BTN_CANCEL)
+async def weekly_prompt_cancel(message: Message, state: FSMContext, settings: Settings) -> None:
+    if await _deny_if_needed(message, settings):
+        return
+    await state.clear()
+    await message.answer("Отменено.", reply_markup=test_menu())
 
 
 @router.callback_query(F.data == CALLBACK_OPEN_DIARY)
@@ -609,6 +816,7 @@ async def run_bot() -> None:
     lunar_service = LunarService(settings)
     dacha6_service = Dacha6Service(settings, lunar_service, storage)
     weekly_review_service = WeeklyReviewService(settings)
+    ai_chat_service = AIChatService(settings)
     logger.info(
         "Weekly review: %s; weekday=%s; time=%02d:%02d; model=%s",
         "enabled" if settings.weekly_review_enabled else "disabled",
@@ -629,6 +837,7 @@ async def run_bot() -> None:
     dp["lunar_service"] = lunar_service
     dp["dacha6_service"] = dacha6_service
     dp["weekly_review_service"] = weekly_review_service
+    dp["ai_chat_service"] = ai_chat_service
 
     asyncio.create_task(digest_loop(bot, storage, settings, horoscope_service, lunar_service, dacha6_service))
     asyncio.create_task(diary_reminder_loop(bot, storage, settings))

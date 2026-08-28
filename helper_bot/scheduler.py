@@ -16,6 +16,7 @@ from .storage import Storage
 from .weekly_review_service import (
     WeeklyReviewError,
     WeeklyReviewService,
+    current_prompt_text,
     current_week_period,
     empty_weekly_review_text,
 )
@@ -162,7 +163,10 @@ async def send_weekly_reviews(
         entries = storage.entries_between(period_start, period_end)
         if entries:
             try:
-                text = await weekly_review_service.generate(entries, period_start, period_end)
+                prompt = current_prompt_text(storage)
+                text = await weekly_review_service.generate(
+                    entries, period_start, period_end, system_prompt=prompt
+                )
             except WeeklyReviewError:
                 logger.exception("Failed to prepare weekly review for %s", week_start)
                 return

@@ -4,6 +4,9 @@ import unittest
 from datetime import date
 
 from helper_bot.keyboards import (
+    BTN_AI_CHAT,
+    BTN_AI_EXIT,
+    BTN_AI_NEW_CHAT,
     BTN_CALENDAR,
     BTN_SOWING_DAYS,
     BTN_TEST,
@@ -11,6 +14,7 @@ from helper_bot.keyboards import (
     BTN_TEST_DIGEST,
     BTN_TEST_WEEKLY_REVIEW,
     CALLBACK_OPEN_DIARY,
+    ai_chat_menu,
     dacha_months_menu,
     diary_reminder_actions,
     main_menu,
@@ -29,6 +33,7 @@ class AdminTestMenuTest(unittest.TestCase):
 
         self.assertIn(BTN_TEST, texts)
         self.assertNotIn(BTN_TEST_DIGEST, texts)
+        self.assertIn(BTN_AI_CHAT, texts)
 
     def test_test_menu_has_all_actions(self) -> None:
         texts = _button_texts(test_menu())
@@ -43,6 +48,11 @@ class AdminTestMenuTest(unittest.TestCase):
 
         self.assertEqual(button.text, "📖 Открыть дневник")
         self.assertEqual(button.callback_data, CALLBACK_OPEN_DIARY)
+
+    def test_ai_chat_menu_has_new_chat_and_exit(self) -> None:
+        texts = _button_texts(ai_chat_menu())
+
+        self.assertEqual(texts, [BTN_AI_NEW_CHAT, BTN_AI_EXIT])
 
 
 class MonthKeyboardsTest(unittest.TestCase):

@@ -158,7 +158,7 @@ def load_settings() -> Settings:
             "AMVERA_LLM_BASE_URL",
             "https://inference.waw0.amvera.ru/v1",
         ).strip(),
-        amvera_llm_model=os.getenv("AMVERA_LLM_MODEL", "llama70b").strip(),
+        amvera_llm_model=os.getenv("AMVERA_LLM_MODEL", "gpt-4.1").strip(),
         data_dir=data_dir,
         horoscope_provider=os.getenv("HOROSCOPE_PROVIDER", "mail_ru").strip().lower(),
         horoscope_sign=os.getenv("HOROSCOPE_SIGN", "pisces").strip().lower(),

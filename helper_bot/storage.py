@@ -19,6 +19,16 @@ class DiaryEntry:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class AIChatMessage:
+    id: int
+    conversation_id: int
+    user_id: int
+    role: str
+    content: str
+    created_at: datetime
+
+
 class Storage:
     def __init__(self, database_path: Path, photos_dir: Path, backups_dir: Path) -> None:
         self.database_path = database_path
@@ -93,6 +103,28 @@ class Storage:
                     source TEXT NOT NULL,
                     fetched_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS ai_chat_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ai_chat_conversations_user_id
+                    ON ai_chat_conversations(user_id, id);
+
+                CREATE TABLE IF NOT EXISTS ai_chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(conversation_id) REFERENCES ai_chat_conversations(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_conversation
+                    ON ai_chat_messages(conversation_id, id);
                 """
             )
 
@@ -352,6 +384,84 @@ class Storage:
                 """,
                 (cache_key, text, source, fetched_at.isoformat()),
             )
+
+    def start_ai_conversation(self, user_id: int, created_at: datetime) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO ai_chat_conversations(user_id, created_at) VALUES (?, ?)",
+                (user_id, created_at.isoformat()),
+            )
+            return int(cursor.lastrowid)
+
+    def active_ai_conversation_id(self, user_id: int) -> int | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM ai_chat_conversations
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+        return None if row is None else int(row["id"])
+
+    def get_or_start_ai_conversation(self, user_id: int, created_at: datetime) -> int:
+        conversation_id = self.active_ai_conversation_id(user_id)
+        if conversation_id is not None:
+            return conversation_id
+        return self.start_ai_conversation(user_id, created_at)
+
+    def add_ai_chat_message(
+        self,
+        conversation_id: int,
+        user_id: int,
+        role: str,
+        content: str,
+        created_at: datetime,
+    ) -> AIChatMessage:
+        clean_content = content.strip()
+        if role not in {"user", "assistant"}:
+            raise ValueError("AI chat role must be user or assistant")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO ai_chat_messages(conversation_id, user_id, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (conversation_id, user_id, role, clean_content, created_at.isoformat()),
+            )
+            message_id = int(cursor.lastrowid)
+        return AIChatMessage(message_id, conversation_id, user_id, role, clean_content, created_at)
+
+    def ai_chat_messages(self, conversation_id: int, limit: int = 20) -> list[AIChatMessage]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, conversation_id, user_id, role, content, created_at
+                FROM (
+                    SELECT id, conversation_id, user_id, role, content, created_at
+                    FROM ai_chat_messages
+                    WHERE conversation_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                ORDER BY id ASC
+                """,
+                (conversation_id, limit),
+            ).fetchall()
+        return [
+            AIChatMessage(
+                id=int(row["id"]),
+                conversation_id=int(row["conversation_id"]),
+                user_id=int(row["user_id"]),
+                role=str(row["role"]),
+                content=str(row["content"]),
+                created_at=datetime.fromisoformat(str(row["created_at"])),
+            )
+            for row in rows
+        ]
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

@@ -10,10 +10,16 @@ from .content import MONTHS_RU
 BTN_DACHA = "Дача"
 BTN_DIARY = "Дневник"
 BTN_HOROSCOPE = "Гороскоп"
+BTN_AI_CHAT = "🤖 Спросить ИИ"
+BTN_AI_NEW_CHAT = "🧹 Новый разговор"
+BTN_AI_EXIT = "↩️ Выйти из ИИ"
 BTN_TEST = "Тест"
 BTN_TEST_DIGEST = "Тест утреннего дайджеста"
 BTN_TEST_DIARY_REMINDER = "Тест вечернего сообщения"
 BTN_TEST_WEEKLY_REVIEW = "Тест итогов недели"
+BTN_TEST_PROMPT = "✏️ Промт итогов недели"
+BTN_PROMPT_SAVE = "💾 Сохранить"
+BTN_PROMPT_RETRY = "🔁 Ещё правки"
 BTN_CALENDAR = "Календарь"
 BTN_SOWING_DAYS = "Дни для посева"
 BTN_TODAY_TIP = "Что сделать?"
@@ -49,7 +55,7 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
 
 
 def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
-    rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE]]
+    rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE, BTN_AI_CHAT]]
     if is_admin:
         rows.append([BTN_TEST])
     return _keyboard(rows)
@@ -57,8 +63,22 @@ def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
 
 def test_menu() -> ReplyKeyboardMarkup:
     return _keyboard(
-        [[BTN_TEST_DIGEST], [BTN_TEST_DIARY_REMINDER], [BTN_TEST_WEEKLY_REVIEW], [BTN_BACK]]
+        [
+            [BTN_TEST_DIGEST],
+            [BTN_TEST_DIARY_REMINDER],
+            [BTN_TEST_WEEKLY_REVIEW],
+            [BTN_TEST_PROMPT],
+            [BTN_BACK],
+        ]
     )
+
+
+def weekly_prompt_review_menu() -> ReplyKeyboardMarkup:
+    return _keyboard([[BTN_PROMPT_SAVE], [BTN_PROMPT_RETRY], [BTN_CANCEL]])
+
+
+def ai_chat_menu() -> ReplyKeyboardMarkup:
+    return _keyboard([[BTN_AI_NEW_CHAT], [BTN_AI_EXIT]])
 
 
 def diary_reminder_actions() -> InlineKeyboardMarkup:

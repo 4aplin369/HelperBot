@@ -32,6 +32,17 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(len(may_entries), 1)
         self.assertEqual(may_entries[0].created_at, created_at)
 
+    def test_reinitialization_preserves_existing_diary_entries(self) -> None:
+        created_at = datetime(2026, 8, 27, 18, 30)
+        self.storage.add_entry(111, "Старая папина запись", created_at)
+
+        self.storage.init()
+
+        entries = self.storage.all_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].text, "Старая папина запись")
+        self.assertEqual(entries[0].created_at, created_at)
+
     def test_digest_marker(self) -> None:
         digest_date = date(2026, 5, 21)
 
@@ -124,6 +135,40 @@ class StorageTest(unittest.TestCase):
             self.storage.get_cached_text("dacha6:garden:2026-05-27:folk=1"),
             ("Что сделать на даче: 27 мая 2026", "dacha6"),
         )
+
+    def test_ai_chat_history_is_separate_and_persistent(self) -> None:
+        started_at = datetime(2026, 8, 28, 10, 0)
+        first_conversation = self.storage.get_or_start_ai_conversation(111, started_at)
+        self.storage.add_ai_chat_message(first_conversation, 111, "user", "Как дела?", started_at)
+        self.storage.add_ai_chat_message(first_conversation, 111, "assistant", "Хорошо", started_at)
+
+        self.assertEqual(
+            [message.content for message in self.storage.ai_chat_messages(first_conversation)],
+            ["Как дела?", "Хорошо"],
+        )
+        self.assertEqual(
+            self.storage.get_or_start_ai_conversation(111, datetime(2026, 8, 28, 11, 0)),
+            first_conversation,
+        )
+        second_conversation = self.storage.start_ai_conversation(111, datetime(2026, 8, 28, 12, 0))
+        other_user_conversation = self.storage.get_or_start_ai_conversation(222, started_at)
+
+        self.assertNotEqual(second_conversation, first_conversation)
+        self.assertNotEqual(other_user_conversation, second_conversation)
+        self.assertEqual(self.storage.active_ai_conversation_id(111), second_conversation)
+        self.assertEqual(self.storage.ai_chat_messages(second_conversation), [])
+
+    def test_ai_chat_rejects_unknown_role(self) -> None:
+        conversation_id = self.storage.start_ai_conversation(111, datetime(2026, 8, 28, 10, 0))
+
+        with self.assertRaises(ValueError):
+            self.storage.add_ai_chat_message(
+                conversation_id,
+                111,
+                "system",
+                "Нельзя сохранять системное сообщение",
+                datetime(2026, 8, 28, 10, 0),
+            )
 
 
 if __name__ == "__main__":

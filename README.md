@@ -56,12 +56,25 @@ WEEKLY_REVIEW_ENABLED=true
 WEEKLY_REVIEW_DAY=sunday
 WEEKLY_REVIEW_TIME=19:00
 AMVERA_LLM_BASE_URL=https://inference.waw0.amvera.ru/v1
-AMVERA_LLM_MODEL=llama70b
+AMVERA_LLM_MODEL=gpt-4.1
 ```
 
 4. Перезапустите приложение и проверьте `Тест → Тест итогов недели`.
 
 Amvera использует OpenAI-совместимый маршрут `v1/chat/completions`. Актуальную модель можно заменить через `AMVERA_LLM_MODEL` без изменения кода.
+
+## Диалог с ИИ
+
+Кнопка `🤖 Спросить ИИ` доступна всем пользователям из `ALLOWED_USER_IDS`. Бот отправляет вопросы в ту же модель Amvera LLM, которая используется для weekly review, и сохраняет историю отдельно для каждого пользователя в SQLite.
+
+В режиме диалога:
+
+- `🧹 Новый разговор` начинает чистый контекст, не удаляя старые сообщения из базы;
+- `↩️ Выйти из ИИ` возвращает главное меню, а текущая история сохраняется;
+- после перезапуска приложения последний разговор продолжается;
+- модели передаются последние 20 реплик в пределах 12 000 знаков, чтобы технически ограничить разрастание одного запроса. Для пользователя количество вопросов не ограничено.
+
+Для чата не нужны дополнительные секреты: используются `AMVERA_API_TOKEN`, `AMVERA_LLM_BASE_URL` и `AMVERA_LLM_MODEL`.
 
 ## Установка и запуск
 
@@ -102,7 +115,7 @@ Copy-Item .env.example .env
 - `WEEKLY_REVIEW_TIME` — время weekly review; по умолчанию `19:00`.
 - `AMVERA_API_TOKEN` — секретный токен Amvera LLM.
 - `AMVERA_LLM_BASE_URL` — базовый адрес OpenAI-совместимого API Amvera.
-- `AMVERA_LLM_MODEL` — модель для обзора; начальное значение `llama70b`.
+- `AMVERA_LLM_MODEL` — модель для weekly review и диалога с ИИ; начальное значение `gpt-4.1`.
 - `DATA_DIR` — папка для базы, фото и резервных копий. На Railway должна совпадать с Mount Path volume, например `/app/data`.
 - `HOROSCOPE_PROVIDER` — источник гороскопа: `mail_ru`, `astrology_api` или `freehoroscopeapi`.
 - `HOROSCOPE_SIGN` — знак зодиака; сейчас `pisces`.
@@ -121,7 +134,7 @@ Copy-Item .env.example .env
 
 ## Данные и безопасность
 
-Данные дневника хранятся в SQLite-базе `helper_bot.sqlite3` внутри `DATA_DIR`. Фото сохраняются в Telegram как `file_id` и скачиваются в `DATA_DIR/photos/`, если Telegram отдаёт файл.
+Данные дневника и история разговоров с ИИ хранятся в SQLite-базе `helper_bot.sqlite3` внутри `DATA_DIR`. Фото сохраняются в Telegram как `file_id` и скачиваются в `DATA_DIR/photos/`, если Telegram отдаёт файл.
 
 Локальные `.env`, базы данных, фотографии, резервные копии и логи не должны попадать в Git. План следующих функций, включая weekly review и monthly review, находится в [`ROADMAP.md`](ROADMAP.md).
 
