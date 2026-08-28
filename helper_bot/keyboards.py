@@ -50,6 +50,7 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=text) for text in row] for row in rows],
         resize_keyboard=True,
+        is_persistent=True,
         input_field_placeholder="Выберите кнопку или напишите сообщение",
     )
 

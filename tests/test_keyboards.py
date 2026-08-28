@@ -29,11 +29,13 @@ def _button_texts(markup: object) -> list[str]:
 
 class AdminTestMenuTest(unittest.TestCase):
     def test_admin_main_menu_has_single_test_entry(self) -> None:
-        texts = _button_texts(main_menu(True))
+        markup = main_menu(True)
+        texts = _button_texts(markup)
 
         self.assertIn(BTN_TEST, texts)
         self.assertNotIn(BTN_TEST_DIGEST, texts)
         self.assertIn(BTN_AI_CHAT, texts)
+        self.assertTrue(markup.is_persistent)
 
     def test_test_menu_has_all_actions(self) -> None:
         texts = _button_texts(test_menu())
