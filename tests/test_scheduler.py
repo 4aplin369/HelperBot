@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from helper_bot.scheduler import send_diary_reminders, send_weekly_reviews
+from helper_bot.scheduler import send_daily_digest, send_diary_reminders, send_weekly_reviews
 from helper_bot.storage import Storage
 
 
@@ -31,6 +31,40 @@ class DiaryReminderSchedulerTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(storage.was_diary_reminder_sent(now.date(), 222))
             markup = bot.send_message.await_args.kwargs["reply_markup"]
             self.assertEqual(markup.inline_keyboard[0][0].callback_data, "open_diary")
+
+
+class DailyDigestSchedulerTest(unittest.IsolatedAsyncioTestCase):
+    async def test_winter_digest_does_not_request_dacha_content(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storage = Storage(root / "bot.sqlite3", root / "photos", root / "backups")
+            storage.init()
+            bot = SimpleNamespace(send_message=AsyncMock())
+            settings = SimpleNamespace(
+                allowed_user_ids=frozenset({222}),
+                admin_user_ids=frozenset(),
+                horoscope_sign="pisces",
+                recipient_name="Павел Николаевич",
+            )
+            horoscope_service = SimpleNamespace(
+                get_daily=AsyncMock(return_value=SimpleNamespace(text="Спокойный день"))
+            )
+            dacha6_service = SimpleNamespace(garden_text=AsyncMock())
+            now = datetime(2026, 11, 4, 8, 0)
+
+            await send_daily_digest(
+                bot,
+                storage,
+                settings,
+                horoscope_service,
+                SimpleNamespace(),
+                dacha6_service,
+                now,
+            )
+
+            dacha6_service.garden_text.assert_not_awaited()
+            sent_text = bot.send_message.await_args.args[1]
+            self.assertNotIn("На даче сегодня", sent_text)
 
 
 class WeeklyReviewSchedulerTest(unittest.IsolatedAsyncioTestCase):

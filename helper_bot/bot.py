@@ -14,7 +14,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from .ai_chat_service import AIChatError, AIChatService
 from .config import Settings, load_settings
-from .content import diary_reminder, garden_tip, horoscope, horoscope_title, morning_digest
+from .content import dacha_topics_active, diary_reminder, horoscope_title, morning_digest
 from .dacha6_service import Dacha6Service
 from .formatting import format_entries, format_entries_export, format_saved_entry, month_title, parse_month_button
 from .horoscope_service import HoroscopeService
@@ -130,7 +130,21 @@ async def _deny_if_needed(message: Message, settings: Settings) -> bool:
 
 
 async def _show_main(message: Message, settings: Settings, text: str = "Главное меню") -> None:
-    await message.answer(text, reply_markup=main_menu(_is_admin(message, settings)))
+    await message.answer(
+        text,
+        reply_markup=main_menu(_is_admin(message, settings), _now(settings).date()),
+    )
+
+
+async def _deny_dacha_if_paused(message: Message, settings: Settings) -> bool:
+    today = _now(settings).date()
+    if dacha_topics_active(today):
+        return False
+    await message.answer(
+        "Дачный раздел на зимней паузе до марта.",
+        reply_markup=main_menu(_is_admin(message, settings), today),
+    )
+    return True
 
 
 @router.message(CommandStart())
@@ -148,6 +162,8 @@ async def start(message: Message, state: FSMContext, settings: Settings) -> None
 @router.message(F.text == BTN_DACHA)
 async def dacha(message: Message, state: FSMContext, settings: Settings) -> None:
     if await _deny_if_needed(message, settings):
+        return
+    if await _deny_dacha_if_paused(message, settings):
         return
     await state.clear()
     await message.answer("Раздел “Дача”", reply_markup=dacha_menu())
@@ -189,6 +205,8 @@ async def calendar(
 ) -> None:
     if await _deny_if_needed(message, settings):
         return
+    if await _deny_dacha_if_paused(message, settings):
+        return
     await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_CALENDAR, _now(settings).date()))
 
 
@@ -200,6 +218,8 @@ async def calendar_month(
     dacha6_service: Dacha6Service,
 ) -> None:
     if await _deny_if_needed(message, settings):
+        return
+    if await _deny_dacha_if_paused(message, settings):
         return
     assert message.text is not None
     parsed = _parse_prefixed_month_button(message.text, BTN_CALENDAR)
@@ -217,6 +237,8 @@ async def calendar_month(
 async def today_tip(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
+    if await _deny_dacha_if_paused(message, settings):
+        return
     await message.answer(
         await dacha6_service.garden_text(_now(settings).date(), include_folk_signs=False),
         reply_markup=dacha_menu(),
@@ -227,12 +249,16 @@ async def today_tip(message: Message, settings: Settings, dacha6_service: Dacha6
 async def sowing_days(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
         return
+    if await _deny_dacha_if_paused(message, settings):
+        return
     await message.answer("Выберите месяц.", reply_markup=dacha_months_menu(BTN_SOWING_DAYS, _now(settings).date()))
 
 
 @router.message(F.text.regexp(r"^Дни для посева: (Май|Июнь|Июль|Август|Сентябрь|Октябрь|Ноябрь|Декабрь) 2026$"))
 async def sowing_days_month(message: Message, settings: Settings, dacha6_service: Dacha6Service) -> None:
     if await _deny_if_needed(message, settings):
+        return
+    if await _deny_dacha_if_paused(message, settings):
         return
     assert message.text is not None
     parsed = _parse_prefixed_month_button(message.text, BTN_SOWING_DAYS)
@@ -258,7 +284,7 @@ async def horoscope_handler(
     today = _now(settings).date()
     await message.answer(
         f"✨ {horoscope_title(today, settings.horoscope_sign)}\n{result.text}",
-        reply_markup=main_menu(_is_admin(message, settings)),
+        reply_markup=main_menu(_is_admin(message, settings), today),
     )
 
 
@@ -274,7 +300,7 @@ async def ai_chat_start(
     if not settings.amvera_api_token:
         await message.answer(
             "ИИ пока не подключён. Проверьте секрет AMVERA_API_TOKEN в Amvera.",
-            reply_markup=main_menu(_is_admin(message, settings)),
+            reply_markup=main_menu(_is_admin(message, settings), _now(settings).date()),
         )
         return
     assert message.from_user is not None
@@ -364,14 +390,18 @@ async def test_digest_handler(
     if not _is_admin(message, settings):
         await message.answer("Тесты доступны только дочери.")
         return
-    horoscope_result = await horoscope_service.get_daily(_now(settings).date())
+    today = _now(settings).date()
+    horoscope_result = await horoscope_service.get_daily(today)
+    garden_text = None
+    if dacha_topics_active(today):
+        garden_text = await dacha6_service.garden_text(today)
     await message.answer(
         morning_digest(
-            _now(settings).date(),
+            today,
             horoscope_result.text,
             settings.horoscope_sign,
             settings.recipient_name,
-            await dacha6_service.garden_text(_now(settings).date()),
+            garden_text,
         ),
         reply_markup=test_menu(),
     )
@@ -797,7 +827,7 @@ async def fallback(message: Message, settings: Settings) -> None:
         return
     await message.answer(
         "Выберите кнопку в меню. Чтобы сохранить дело, откройте Дневник -> Записать.",
-        reply_markup=main_menu(_is_admin(message, settings)),
+        reply_markup=main_menu(_is_admin(message, settings), _now(settings).date()),
     )
 
 

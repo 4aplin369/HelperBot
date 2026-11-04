@@ -8,6 +8,7 @@ from helper_bot.keyboards import (
     BTN_AI_EXIT,
     BTN_AI_NEW_CHAT,
     BTN_CALENDAR,
+    BTN_DACHA,
     BTN_SOWING_DAYS,
     BTN_TEST,
     BTN_TEST_DIARY_REMINDER,
@@ -29,13 +30,20 @@ def _button_texts(markup: object) -> list[str]:
 
 class AdminTestMenuTest(unittest.TestCase):
     def test_admin_main_menu_has_single_test_entry(self) -> None:
-        markup = main_menu(True)
+        markup = main_menu(True, date(2026, 7, 1))
         texts = _button_texts(markup)
 
         self.assertIn(BTN_TEST, texts)
         self.assertNotIn(BTN_TEST_DIGEST, texts)
         self.assertIn(BTN_AI_CHAT, texts)
         self.assertTrue(markup.is_persistent)
+
+    def test_winter_main_menu_hides_dacha_until_march(self) -> None:
+        winter_texts = _button_texts(main_menu(False, date(2026, 11, 4)))
+        march_texts = _button_texts(main_menu(False, date(2027, 3, 1)))
+
+        self.assertNotIn(BTN_DACHA, winter_texts)
+        self.assertIn(BTN_DACHA, march_texts)
 
     def test_test_menu_has_all_actions(self) -> None:
         texts = _button_texts(test_menu())

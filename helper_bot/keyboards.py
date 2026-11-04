@@ -4,7 +4,7 @@ from datetime import date
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from .content import MONTHS_RU
+from .content import MONTHS_RU, dacha_topics_active
 
 
 BTN_DACHA = "Дача"
@@ -55,8 +55,12 @@ def _keyboard(rows: list[list[str]]) -> ReplyKeyboardMarkup:
     )
 
 
-def main_menu(is_admin: bool) -> ReplyKeyboardMarkup:
-    rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE, BTN_AI_CHAT]]
+def main_menu(is_admin: bool, today: date | None = None) -> ReplyKeyboardMarkup:
+    menu_date = today or date.today()
+    if dacha_topics_active(menu_date):
+        rows = [[BTN_DACHA, BTN_DIARY], [BTN_HOROSCOPE, BTN_AI_CHAT]]
+    else:
+        rows = [[BTN_DIARY, BTN_HOROSCOPE], [BTN_AI_CHAT]]
     if is_admin:
         rows.append([BTN_TEST])
     return _keyboard(rows)

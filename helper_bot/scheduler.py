@@ -7,7 +7,7 @@ from datetime import datetime
 from aiogram import Bot
 
 from .config import Settings
-from .content import diary_reminder, morning_digest
+from .content import dacha_topics_active, diary_reminder, morning_digest
 from .dacha6_service import Dacha6Service
 from .horoscope_service import HoroscopeService
 from .keyboards import diary_reminder_actions, main_menu
@@ -105,12 +105,15 @@ async def send_daily_digest(
 ) -> None:
     today = now.date()
     horoscope = await horoscope_service.get_daily(today)
+    garden_text = None
+    if dacha_topics_active(today):
+        garden_text = await dacha6_service.garden_text(today)
     text = morning_digest(
         today,
         horoscope.text,
         settings.horoscope_sign,
         settings.recipient_name,
-        await dacha6_service.garden_text(today),
+        garden_text,
     )
 
     for user_id in settings.allowed_user_ids:
@@ -120,7 +123,7 @@ async def send_daily_digest(
             await bot.send_message(
                 user_id,
                 text,
-                reply_markup=main_menu(user_id in settings.admin_user_ids),
+                reply_markup=main_menu(user_id in settings.admin_user_ids, today),
             )
             storage.mark_digest_sent(today, user_id, now)
         except Exception:
@@ -181,7 +184,7 @@ async def send_weekly_reviews(
             await bot.send_message(
                 user_id,
                 text,
-                reply_markup=main_menu(user_id in settings.admin_user_ids),
+                reply_markup=main_menu(user_id in settings.admin_user_ids, now.date()),
             )
             storage.mark_weekly_review_sent(week_start, user_id, now)
         except Exception:

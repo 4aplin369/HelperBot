@@ -155,6 +155,11 @@ def garden_tip(today: date) -> str:
     return tips[today.toordinal() % len(tips)]
 
 
+def dacha_topics_active(today: date) -> bool:
+    """Keep garden features available during the March–October season."""
+    return 3 <= today.month <= 10
+
+
 SIGN_NAMES_RU = {
     "pisces": "Рыб",
 }
@@ -188,15 +193,15 @@ def morning_digest(
 ) -> str:
     horoscope_for_today = horoscope_text or horoscope()
     sign_name = SIGN_NAMES_RU.get(horoscope_sign, "Рыб")
-    garden_for_today = garden_today_text or garden_tip(today)
     parts = [
         f"☀️ Доброе утро, {recipient_name}!",
         f"Сегодня {today.day} {MONTHS_GENITIVE_RU[today.month]}, {WEEKDAYS_RU[today.weekday()]}.",
         "",
         f"✨ {horoscope_title(today, horoscope_sign)}\n{horoscope_for_today}",
-        "",
-        f"🌱 На даче сегодня\n{garden_for_today}",
     ]
+    if dacha_topics_active(today):
+        garden_for_today = garden_today_text or garden_tip(today)
+        parts.extend(["", f"🌱 На даче сегодня\n{garden_for_today}"])
     if today.weekday() in {2, 5}:
         parts.extend(["", "🌸 Цветы\nПап, сегодня день полива цветов."])
     return "\n".join(parts)
