@@ -106,14 +106,18 @@ async def send_daily_digest(
     today = now.date()
     horoscope = await horoscope_service.get_daily(today)
     garden_text = None
+    folk_signs_text = None
     if dacha_topics_active(today):
         garden_text = await dacha6_service.garden_text(today)
+    else:
+        folk_signs_text = await dacha6_service.folk_signs_text(today)
     text = morning_digest(
         today,
         horoscope.text,
         settings.horoscope_sign,
         settings.recipient_name,
         garden_text,
+        folk_signs_text=folk_signs_text,
     )
 
     for user_id in settings.allowed_user_ids:

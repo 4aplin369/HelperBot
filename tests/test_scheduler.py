@@ -49,7 +49,10 @@ class DailyDigestSchedulerTest(unittest.IsolatedAsyncioTestCase):
             horoscope_service = SimpleNamespace(
                 get_daily=AsyncMock(return_value=SimpleNamespace(text="Спокойный день"))
             )
-            dacha6_service = SimpleNamespace(garden_text=AsyncMock())
+            dacha6_service = SimpleNamespace(
+                garden_text=AsyncMock(),
+                folk_signs_text=AsyncMock(return_value="Примета дня"),
+            )
             now = datetime(2026, 11, 4, 8, 0)
 
             await send_daily_digest(
@@ -63,8 +66,10 @@ class DailyDigestSchedulerTest(unittest.IsolatedAsyncioTestCase):
             )
 
             dacha6_service.garden_text.assert_not_awaited()
+            dacha6_service.folk_signs_text.assert_awaited_once_with(now.date())
             sent_text = bot.send_message.await_args.args[1]
             self.assertNotIn("На даче сегодня", sent_text)
+            self.assertIn("Народные приметы\nПримета дня", sent_text)
 
 
 class WeeklyReviewSchedulerTest(unittest.IsolatedAsyncioTestCase):

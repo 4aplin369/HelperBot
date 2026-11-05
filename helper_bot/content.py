@@ -190,6 +190,7 @@ def morning_digest(
     horoscope_sign: str = "pisces",
     recipient_name: str = "Павел Николаевич",
     garden_today_text: str | None = None,
+    folk_signs_text: str | None = None,
 ) -> str:
     horoscope_for_today = horoscope_text or horoscope()
     sign_name = SIGN_NAMES_RU.get(horoscope_sign, "Рыб")
@@ -202,6 +203,8 @@ def morning_digest(
     if dacha_topics_active(today):
         garden_for_today = garden_today_text or garden_tip(today)
         parts.extend(["", f"🌱 На даче сегодня\n{garden_for_today}"])
+    if folk_signs_text:
+        parts.extend(["", f"🍂 Народные приметы\n{folk_signs_text}"])
     if today.weekday() in {2, 5}:
         parts.extend(["", "🌸 Цветы\nПап, сегодня день полива цветов."])
     return "\n".join(parts)

@@ -393,8 +393,11 @@ async def test_digest_handler(
     today = _now(settings).date()
     horoscope_result = await horoscope_service.get_daily(today)
     garden_text = None
+    folk_signs_text = None
     if dacha_topics_active(today):
         garden_text = await dacha6_service.garden_text(today)
+    else:
+        folk_signs_text = await dacha6_service.folk_signs_text(today)
     await message.answer(
         morning_digest(
             today,
@@ -402,6 +405,7 @@ async def test_digest_handler(
             settings.horoscope_sign,
             settings.recipient_name,
             garden_text,
+            folk_signs_text=folk_signs_text,
         ),
         reply_markup=test_menu(),
     )

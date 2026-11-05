@@ -79,6 +79,19 @@ class Dacha6Service:
         self._save_cached_text(cache_key, text, "dacha6")
         return text
 
+    async def folk_signs_text(self, today: date) -> str:
+        """Load only folk signs, without garden advice or garden fallbacks."""
+        cache_key = f"dacha6:folk:{today.isoformat()}"
+        cached = self._get_cached_text(cache_key)
+        if cached is not None:
+            return cached
+        details = await self.get_daily_details(today)
+        if details is None or not details.folk_signs:
+            return "Сегодня не удалось загрузить народные приметы."
+        text = _bullet_list(details.folk_signs)
+        self._save_cached_text(cache_key, text, "dacha6")
+        return text
+
     async def get_daily_details(self, today: date) -> DailyGardenDetails | None:
         headers = {"User-Agent": "Mozilla/5.0"}
         try:

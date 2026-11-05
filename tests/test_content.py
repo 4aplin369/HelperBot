@@ -40,6 +40,16 @@ class DachaSeasonTest(unittest.TestCase):
         self.assertIn("На даче сегодня", text)
         self.assertIn("Проверить участок", text)
 
+    def test_winter_digest_keeps_folk_signs_without_garden_advice(self) -> None:
+        text = morning_digest(
+            date(2026, 11, 5),
+            garden_today_text="Полить грядки",
+            folk_signs_text="Примета дня",
+        )
+        self.assertIn("Народные приметы\nПримета дня", text)
+        self.assertNotIn("Полить грядки", text)
+        self.assertNotIn("На даче сегодня", text)
+
 
 if __name__ == "__main__":
     unittest.main()
