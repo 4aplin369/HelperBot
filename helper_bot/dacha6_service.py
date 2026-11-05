@@ -6,6 +6,7 @@ import re
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime
+from html.parser import HTMLParser
 
 import aiohttp
 
@@ -33,6 +34,50 @@ class DailyGardenDetails:
     medium: tuple[str, ...]
     bad: tuple[str, ...]
     folk_signs: tuple[str, ...]
+
+
+class _RegionParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.headings: list[str] = []
+        self.selected_regions: list[str] = []
+        self.in_heading = False
+        self.in_selected_option = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "h1":
+            self.in_heading = True
+            self.headings.append("")
+        if tag == "option":
+            self.in_selected_option = "selected" in dict(attrs)
+            if self.in_selected_option:
+                self.selected_regions.append("")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "h1":
+            self.in_heading = False
+        if tag == "option":
+            self.in_selected_option = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_heading:
+            self.headings[-1] += data
+        if self.in_selected_option:
+            self.selected_regions[-1] += data
+
+
+def _page_matches_region(page: str, settings: Settings, *, require_city: bool = False) -> bool:
+    parser = _RegionParser()
+    parser.feed(page)
+    regions = [" ".join(value.split()).casefold() for value in parser.selected_regions]
+    if regions != [settings.lunar_region.casefold()]:
+        return False
+    if require_city:
+        city = re.escape(settings.lunar_city)
+        return len(parser.headings) == 1 and bool(
+            re.search(rf"(?<!\w){city}(?!\w)", parser.headings[0], re.IGNORECASE)
+        )
+    return True
 
 
 class Dacha6Service:
@@ -102,6 +147,7 @@ class Dacha6Service:
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
+                    await response.read()
 
                 day_url = f"https://www.dacha6.ru/lunnyi-kalendar-dachnika/{today.year}/{today.month}/{today.day}/"
                 async with session.get(day_url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
@@ -114,7 +160,7 @@ class Dacha6Service:
             logger.warning("Failed to fetch dacha6 daily details: %s", exc)
             return None
 
-        if self.settings.lunar_city not in page and self.settings.lunar_region not in page:
+        if not _page_matches_region(page, self.settings, require_city=True):
             logger.warning("dacha6 daily page did not keep selected region")
             return None
 
@@ -201,7 +247,11 @@ class Dacha6Service:
                     timeout=aiohttp.ClientTimeout(total=15),
                 ) as response:
                     response.raise_for_status()
-                    return await response.text()
+                    page = await response.text()
+                    if not _page_matches_region(page, self.settings):
+                        logger.warning("dacha6 month page did not keep selected region")
+                        return None
+                    return page
         except aiohttp.ClientResponseError as exc:
             logger.warning("Failed to fetch dacha6 calendar: HTTP %s %s", exc.status, exc.request_info.real_url)
             return None
@@ -212,7 +262,7 @@ class Dacha6Service:
     def _get_cached_text(self, cache_key: str) -> str | None:
         if self.storage is None:
             return None
-        cached = self.storage.get_cached_text(cache_key)
+        cached = self.storage.get_cached_text(self._regional_cache_key(cache_key))
         if cached is None:
             return None
         text, source = cached
@@ -222,7 +272,11 @@ class Dacha6Service:
     def _save_cached_text(self, cache_key: str, text: str, source: str) -> None:
         if self.storage is None:
             return
-        self.storage.save_cached_text(cache_key, text, source, datetime.now(self.settings.timezone))
+        self.storage.save_cached_text(self._regional_cache_key(cache_key), text, source, datetime.now(self.settings.timezone))
+
+    def _regional_cache_key(self, cache_key: str) -> str:
+        # Do not reuse content cached before strict region validation.
+        return f"region-v2:{self.settings.lunar_city}:{self.settings.lunar_region}:{self.settings.dacha6_calendar_url}:{cache_key}"
 
     @staticmethod
     def _advice_for_category(category: str) -> str:

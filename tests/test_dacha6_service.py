@@ -2,9 +2,60 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
+from types import SimpleNamespace
 
-from helper_bot.dacha6_service import Dacha6Service, DailyGardenDetails, _month_days_text, _parse_day, _with_today_title
+from helper_bot.dacha6_service import Dacha6Service, DailyGardenDetails, _month_days_text, _parse_day, _with_today_title, _page_matches_region
+
+
+class RegionTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self.settings = SimpleNamespace(
+            lunar_city="Барнаул", lunar_region="Алтайский край",
+            dacha6_calendar_url="https://www.dacha6.ru/lunnyi-kalendar-dachnika/altayskiy-kray/",
+        )
+        self.correct = '<h1>Календарь для г. Барнаул Алтайского края</h1><select><option>Москва</option><option selected>Алтайский край</option></select>'
+        self.wrong = '<h1>Календарь для г. Москва</h1><select><option selected>Москва</option><option>Алтайский край</option></select><p>Барнаул</p>'
+
+    def test_checks_selected_region_and_daily_heading(self) -> None:
+        self.assertTrue(_page_matches_region(self.correct, self.settings, require_city=True))
+        self.assertFalse(_page_matches_region(self.wrong, self.settings, require_city=True))
+        self.assertFalse(_page_matches_region(self.wrong, self.settings))
+        self.assertFalse(_page_matches_region(self.correct.replace('г. Барнаул', 'г. Москва'), self.settings, require_city=True))
+        self.assertFalse(_page_matches_region(self.correct.replace(' selected', ''), self.settings))
+        self.assertFalse(_page_matches_region('', self.settings))
+        self.assertTrue(_page_matches_region(self.correct.replace('г. Барнаул', 'ноябрь'), self.settings))
+
+    async def test_fetch_rejects_wrong_region_for_day_and_month(self) -> None:
+        for page, valid in ((self.correct, True), (self.wrong, False)):
+            response = Mock()
+            response.read = AsyncMock()
+            response.text = AsyncMock(return_value=page)
+            request = AsyncMock()
+            request.__aenter__.return_value = response
+            session = Mock()
+            session.get.return_value = request
+            session_context = AsyncMock()
+            session_context.__aenter__.return_value = session
+            service = Dacha6Service(self.settings, Mock())
+            with patch('helper_bot.dacha6_service.aiohttp.ClientSession', return_value=session_context), patch(
+                'helper_bot.dacha6_service._parse_daily_details',
+                return_value=DailyGardenDetails((), (), (), ('Примета',)),
+            ) as parse_details:
+                daily = await service.get_daily_details(date(2026, 11, 5))
+                monthly = await service._fetch_month_page(2026, 11)
+                self.assertEqual(parse_details.call_count, int(valid))
+            self.assertEqual(daily is not None, valid)
+            self.assertEqual(monthly is not None, valid)
+
+    def test_cache_is_versioned_and_region_scoped(self) -> None:
+        storage = Mock()
+        storage.get_cached_text.return_value = None
+        service = Dacha6Service(self.settings, Mock(), storage)
+        service._get_cached_text('dacha6:folk:2026-11-05')
+        key = storage.get_cached_text.call_args.args[0]
+        self.assertTrue(key.startswith('region-v2:Барнаул:Алтайский край:'))
+        self.assertNotEqual(key, 'dacha6:folk:2026-11-05')
 
 
 class FolkSignsTest(unittest.IsolatedAsyncioTestCase):
